@@ -6,7 +6,9 @@ import { find, flatten, uniq, without } from 'lodash';
 
 import { Application } from 'core/application/application.model';
 import { CollapsibleSectionStateCache } from 'core/cache';
+import { EntityNotifications } from 'core/entityTag/notifications/EntityNotifications';
 import { Execution } from '../execution/Execution';
+import { ExecutionAction } from '../executionAction/ExecutionAction';
 import { IExecution, IExecutionGroup, IExecutionTrigger, IPipeline, IPipelineCommand } from 'core/domain';
 import { NextRunTag } from 'core/pipeline/triggers/NextRunTag';
 import { Popover } from 'core/presentation/Popover';
@@ -16,6 +18,7 @@ import { IRetryablePromise } from 'core/utils/retryablePromise';
 import { TriggersTag } from 'core/pipeline/triggers/TriggersTag';
 import { AccountTag } from 'core/account';
 import { ModalInjector, ReactInjector } from 'core/reactShims';
+import { PipelineTemplateV2Service } from 'core/pipeline';
 import { Spinner } from 'core/widgets/spinners/Spinner';
 
 import './executionGroup.less';
@@ -33,27 +36,27 @@ export interface IExecutionGroupState {
   triggeringExecution: boolean;
   open: boolean;
   poll: IRetryablePromise<any>;
-  canTriggerPipelineManually: boolean;
-  canConfigure: boolean;
+  displayExecutionActions: boolean;
   showAccounts: boolean;
   showOverflowAccountTags: boolean;
 }
 
 export class ExecutionGroup extends React.Component<IExecutionGroupProps, IExecutionGroupState> {
-  private strategyConfig: IPipeline;
+  public state: IExecutionGroupState;
   private expandUpdatedSubscription: Subscription;
   private stateChangeSuccessSubscription: Subscription;
 
   constructor(props: IExecutionGroupProps) {
     super(props);
 
-    this.strategyConfig = find(this.props.application.strategyConfigs.data, {
+    const strategyConfig = find(this.props.application.strategyConfigs.data, {
       name: this.props.group.heading,
     }) as IPipeline;
 
     const pipelineConfig = find(this.props.application.pipelineConfigs.data, {
       name: this.props.group.heading,
     }) as IPipeline;
+
     const sectionCacheKey = this.getSectionCacheKey();
 
     this.state = {
@@ -64,8 +67,7 @@ export class ExecutionGroup extends React.Component<IExecutionGroupProps, IExecu
         !CollapsibleSectionStateCache.isSet(sectionCacheKey) ||
         CollapsibleSectionStateCache.isExpanded(sectionCacheKey),
       poll: null,
-      canTriggerPipelineManually: !!pipelineConfig,
-      canConfigure: !!(pipelineConfig || this.strategyConfig),
+      displayExecutionActions: !!(pipelineConfig || strategyConfig),
       showAccounts: ExecutionState.filterModel.asFilterModel.sortFilter.groupBy === 'name',
       pipelineConfig,
       showOverflowAccountTags: false,
@@ -113,15 +115,15 @@ export class ExecutionGroup extends React.Component<IExecutionGroupProps, IExecu
   private startPipeline(command: IPipelineCommand): IPromise<void> {
     const { executionService } = ReactInjector;
     this.setState({ triggeringExecution: true });
-    return executionService.startAndMonitorPipeline(this.props.application, command.pipelineName, command.trigger).then(
-      monitor => {
+    return executionService
+      .startAndMonitorPipeline(this.props.application, command.pipelineName, command.trigger)
+      .then(monitor => {
         this.setState({ poll: monitor });
-        monitor.promise.then(() => this.setState({ triggeringExecution: false }));
-      },
-      () => {
-        this.props.application.executions.refresh().then(() => this.setState({ triggeringExecution: false }));
-      },
-    );
+        return monitor.promise;
+      })
+      .finally(() => {
+        this.setState({ triggeringExecution: false });
+      });
   }
 
   public triggerPipeline(trigger: IExecutionTrigger = null, config = this.state.pipelineConfig): void {
@@ -198,11 +200,12 @@ export class ExecutionGroup extends React.Component<IExecutionGroupProps, IExecu
   };
 
   public render(): React.ReactElement<ExecutionGroup> {
-    const group = this.props.group;
-    const pipelineConfig = this.state.pipelineConfig;
+    const { group } = this.props;
+    const { displayExecutionActions, pipelineConfig, triggeringExecution } = this.state;
     const pipelineDisabled = pipelineConfig && pipelineConfig.disabled;
     const pipelineDescription = pipelineConfig && pipelineConfig.description;
     const hasRunningExecutions = group.runningExecutions && group.runningExecutions.length > 0;
+    const hasMPTv2PipelineConfig = !!(pipelineConfig && PipelineTemplateV2Service.isV2PipelineConfig(pipelineConfig));
 
     const deploymentAccountLabels = without(this.state.deploymentAccounts || [], ...(group.targetAccounts || [])).map(
       (account: string) => <AccountTag key={account} account={account} />,
@@ -237,8 +240,9 @@ export class ExecutionGroup extends React.Component<IExecutionGroupProps, IExecu
       <Execution
         key={execution.id}
         execution={execution}
+        pipelineConfig={pipelineConfig}
         application={this.props.application}
-        onRerun={this.rerunExecutionClicked}
+        onRerun={pipelineConfig && !hasMPTv2PipelineConfig ? this.rerunExecutionClicked : undefined}
       />
     ));
 
@@ -275,31 +279,50 @@ export class ExecutionGroup extends React.Component<IExecutionGroupProps, IExecu
                     </span>
                   )}
                 </h4>
-                {this.state.canConfigure && (
+                {pipelineConfig && (
+                  <EntityNotifications
+                    entity={pipelineConfig}
+                    application={this.props.application}
+                    entity-type="pipeline"
+                    hOffsetPercent="20%"
+                    placement="top"
+                    onUpdate={() => this.props.application.refresh()}
+                  />
+                )}
+                {displayExecutionActions && (
                   <div className="text-right execution-group-actions">
                     {pipelineConfig && <TriggersTag pipeline={pipelineConfig} />}
                     {pipelineConfig && <NextRunTag pipeline={pipelineConfig} />}
-                    <h4>
-                      <a className="btn btn-xs btn-link" onClick={this.handleConfigureClicked}>
-                        <span className="glyphicon glyphicon-cog" />
-                        {' Configure'}
-                      </a>
-                    </h4>
-                    {this.state.canTriggerPipelineManually && (
-                      <h4 style={{ visibility: pipelineDisabled ? 'hidden' : 'visible' }}>
-                        <a className="btn btn-xs btn-link" onClick={this.handleTriggerClicked}>
-                          {this.state.triggeringExecution ? (
-                            <div className="horizontal middle inline-spinner">
-                              <Spinner size="nano" />
-                              <span> Starting Manual Execution</span>
-                            </div>
-                          ) : (
-                            <span>
-                              <span className="glyphicon glyphicon-play" /> Start Manual Execution
-                            </span>
-                          )}
-                        </a>
-                      </h4>
+                    <ExecutionAction
+                      handleClick={this.handleConfigureClicked}
+                      disabled={hasMPTv2PipelineConfig}
+                      tooltipText={
+                        hasMPTv2PipelineConfig ? PipelineTemplateV2Service.getUnsupportedCopy('Configuration') : ''
+                      }
+                    >
+                      <span className="glyphicon glyphicon-cog" />
+                      {' Configure'}
+                    </ExecutionAction>
+                    {pipelineConfig && (
+                      <ExecutionAction
+                        disabled={hasMPTv2PipelineConfig}
+                        handleClick={this.handleTriggerClicked}
+                        style={{ visibility: pipelineDisabled ? 'hidden' : 'visible' }}
+                        tooltipText={
+                          hasMPTv2PipelineConfig ? PipelineTemplateV2Service.getUnsupportedCopy('Manual Execution') : ''
+                        }
+                      >
+                        {triggeringExecution ? (
+                          <div className="horizontal middle inline-spinner">
+                            <Spinner size="nano" />
+                            <span> Starting Manual Execution</span>
+                          </div>
+                        ) : (
+                          <span>
+                            <span className="glyphicon glyphicon-play" /> Start Manual Execution
+                          </span>
+                        )}
+                      </ExecutionAction>
                     )}
                   </div>
                 )}

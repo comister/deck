@@ -31,14 +31,16 @@ export class StateConfigProvider implements IServiceProvider {
   private root: INestedState = {
     name: 'home',
     abstract: true,
+    params: {
+      allowModalToStayOpen: { dynamic: true, value: null },
+    },
     url: '?{debug:boolean}&{vis:query}&{trace:query}',
     dynamic: true,
     children: [],
   };
 
-  constructor(private $urlRouterProvider: UrlRouterProvider, private stateHelperProvider: StateHelper) {
-    'ngInject';
-  }
+  public static $inject = ['$urlRouterProvider', 'stateHelperProvider'];
+  constructor(private $urlRouterProvider: UrlRouterProvider, private stateHelperProvider: StateHelper) {}
 
   /**
    * Adds a root state, e.g. /applications, /projects, /infrastructure
@@ -166,19 +168,25 @@ export const sortKeyParamType = {
 export const STATE_CONFIG_PROVIDER = 'spinnaker.core.navigation.state.config.provider';
 module(STATE_CONFIG_PROVIDER, [require('@uirouter/angularjs').default, STATE_HELPER])
   .provider('stateConfig', StateConfigProvider)
-  .config(($urlRouterProvider: UrlRouterProvider) => {
-    $urlRouterProvider.otherwise('/');
-    // Don't crash on trailing slashes
-    $urlRouterProvider.when('/{path:.*}/', [
-      '$match',
-      ($match: any) => {
-        return '/' + $match.path;
-      },
-    ]);
-  })
-  .config(($urlServiceProvider: UrlService) => {
-    $urlServiceProvider.config.type('trueKeyObject', trueKeyObjectParamType);
-    $urlServiceProvider.config.type('inverse-boolean', inverseBooleanParamType);
-    $urlServiceProvider.config.type('boolean', booleanParamType);
-    $urlServiceProvider.config.type('sortKey', sortKeyParamType);
-  });
+  .config([
+    '$urlRouterProvider',
+    ($urlRouterProvider: UrlRouterProvider) => {
+      $urlRouterProvider.otherwise('/');
+      // Don't crash on trailing slashes
+      $urlRouterProvider.when('/{path:.*}/', [
+        '$match',
+        ($match: any) => {
+          return '/' + $match.path;
+        },
+      ]);
+    },
+  ])
+  .config([
+    '$urlServiceProvider',
+    ($urlServiceProvider: UrlService) => {
+      $urlServiceProvider.config.type('trueKeyObject', trueKeyObjectParamType);
+      $urlServiceProvider.config.type('inverse-boolean', inverseBooleanParamType);
+      $urlServiceProvider.config.type('boolean', booleanParamType);
+      $urlServiceProvider.config.type('sortKey', sortKeyParamType);
+    },
+  ]);

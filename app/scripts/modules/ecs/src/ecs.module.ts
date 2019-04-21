@@ -19,7 +19,7 @@ import { ECS_SERVER_GROUP_LOGGING } from './serverGroup/configure/wizard/logging
 
 import './logo/ecs.logo.less';
 
-require('./ecs.settings.ts');
+require('./ecs.settings');
 
 // load all templates into the $templateCache
 const templates = require.context('./', true, /\.html$/);
@@ -36,7 +36,7 @@ angular
     ECS_SERVER_GROUP_TRANSFORMER,
     // require('./pipeline/stages/cloneServerGroup/ecsCloneServerGroupStage').name,  // TODO(Bruno Carrier): We should enable this on Clouddriver before revealing this stage
     require('./serverGroup/configure/wizard/advancedSettings/advancedSettings.component').name,
-    require('./serverGroup/configure/wizard/verticalScaling/verticalScaling.component').name,
+    require('./serverGroup/configure/wizard/container/container.component').name,
     require('./serverGroup/configure/wizard/horizontalScaling/horizontalScaling.component').name,
     ECS_SERVER_GROUP_LOGGING,
     ECS_NETWORKING_SECTION,
@@ -56,7 +56,7 @@ angular
     require('./pipeline/stages/resizeAsg/ecsResizeAsgStage').name,
     require('./pipeline/stages/scaleDownCluster/ecsScaleDownClusterStage').name,
     require('./pipeline/stages/shrinkCluster/ecsShrinkClusterStage').name,
-    require('./securityGroup/securityGroup.transformer.js').name,
+    require('./securityGroup/securityGroup.transformer').name,
     ECS_SERVERGROUP_MODULE,
   ])
   .config(function() {

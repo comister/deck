@@ -1,4 +1,5 @@
-import { IExpectedArtifact, IArtifactAccount, IArtifactSource, IArtifactKindConfig } from 'core';
+import { IExpectedArtifact, IArtifactSource, IArtifactKindConfig } from 'core/domain';
+import { IArtifactAccount } from 'core/account';
 import { ExpectedArtifactService } from './expectedArtifact.service';
 
 export interface IExpectedArtifactSelectorViewControllerDelegate {
@@ -19,6 +20,7 @@ export interface IExpectedArtifactSelectorViewControllerDelegate {
 export class ExpectedArtifactSelectorViewController {
   public accountsForArtifact: IArtifactAccount[] = [];
 
+  public static $inject = ['delegate'];
   constructor(private delegate: IExpectedArtifactSelectorViewControllerDelegate) {}
 
   public updateAccounts = (expectedArtifact: IExpectedArtifact) => {
@@ -27,7 +29,10 @@ export class ExpectedArtifactSelectorViewController {
     } else {
       const artifact = ExpectedArtifactService.artifactFromExpected(expectedArtifact);
       const allAccounts = this.delegate.getExpectedArtifactAccounts();
-      this.accountsForArtifact = allAccounts.filter(a => a.types.includes(artifact.type));
+      this.accountsForArtifact =
+        artifact.type === 'helm/chart'
+          ? allAccounts.filter(a => a.types.includes(artifact.type) && a.name === artifact.artifactAccount)
+          : allAccounts.filter(a => a.types.includes(artifact.type));
       const selected = this.delegate.getSelectedAccount();
       if (!selected || !this.accountsForArtifact.find(a => a.name === selected.name)) {
         if (this.accountsForArtifact.length) {

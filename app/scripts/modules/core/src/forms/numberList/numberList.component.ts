@@ -12,7 +12,7 @@ export class NumberListController implements IController {
   public label: string;
   public backingModel: number[];
   public parameterized = false;
-  public onChange: () => any;
+  public onChange: (model: number[] | string) => void;
 
   public synchronize(): void {
     const model: number[] | string = this.model; // typescript union type woes
@@ -26,7 +26,7 @@ export class NumberListController implements IController {
       model.sort((a, b) => a - b);
     }
     if (this.onChange) {
-      this.onChange();
+      this.onChange(model);
     }
   }
 
@@ -90,16 +90,15 @@ export class NumberListController implements IController {
   }
 }
 
-class NumberListComponent implements IComponentOptions {
-  public bindings: any = {
+const numberListComponent: IComponentOptions = {
+  bindings: {
     model: '=',
     constraints: '<?',
     label: '@',
     onChange: '&',
-  };
-
-  public controller: any = NumberListController;
-  public template = `
+  },
+  controller: NumberListController,
+  template: `
     <div ng-if="$ctrl.parameterized">
       <input type="text" class="form-control input-sm" ng-model="$ctrl.model"/>
     </div>
@@ -116,7 +115,7 @@ class NumberListComponent implements IComponentOptions {
               ng-class="{active: !$ctrl.parameterized}"
               ng-click="$ctrl.toggleParameterization(true)"
               uib-tooltip="Toggle to enter expression">
-              $\{…\}
+              $\{…}
       </button>
     </div>
     <div ng-if="!$ctrl.parameterized" class="row-number" ng-repeat="entry in $ctrl.backingModel track by $index">
@@ -138,8 +137,27 @@ class NumberListComponent implements IComponentOptions {
         Add {{$ctrl.label}}
       </button>
     </div>
-`;
-}
+`,
+};
+
+export const numberListWrapperComponent: IComponentOptions = {
+  bindings: {
+    model: '<',
+    constraints: '<?',
+    label: '<',
+    onChange: '<',
+  },
+  template: `
+    <number-list
+      model="$ctrl.model"
+      constraints="$ctrl.constraints"
+      label={{$ctrl.label}}
+      on-change="$ctrl.onChange($ctrl.model)">
+    </number-list>
+  `,
+};
 
 export const NUMBER_LIST_COMPONENT = 'spinnaker.core.forms.numberList';
-module(NUMBER_LIST_COMPONENT, []).component('numberList', new NumberListComponent());
+module(NUMBER_LIST_COMPONENT, [])
+  .component('numberList', numberListComponent)
+  .component('numberListWrapper', numberListWrapperComponent);

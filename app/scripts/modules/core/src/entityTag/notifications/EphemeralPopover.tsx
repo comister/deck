@@ -1,8 +1,8 @@
 import * as React from 'react';
 
-import { HoverablePopover, IEntityTags } from 'core';
-
-import * as moment from 'moment';
+import { HoverablePopover } from 'core/presentation';
+import { IEntityTags } from 'core/domain';
+import { relativeTime } from 'core/utils/timeFormatters';
 
 export interface IEphemeralPopoverProps {
   entity?: any;
@@ -19,7 +19,7 @@ export class EphemeralPopover extends React.Component<IEphemeralPopoverProps, IE
   }
 
   private getState(props: IEphemeralPopoverProps): IEphemeralPopoverState {
-    const entityTags: IEntityTags = props.entity.entityTags;
+    const entityTags: IEntityTags = props.entity && props.entity.entityTags;
     if (entityTags) {
       const ephemeralTag = entityTags.tags.filter(x => x.name === 'spinnaker:ttl')[0];
       if (ephemeralTag) {
@@ -35,7 +35,7 @@ export class EphemeralPopover extends React.Component<IEphemeralPopoverProps, IE
   private PopoverContent = () => {
     const { ttl } = this.state;
     const isInPast = !!ttl && Date.now() > ttl;
-    const ttlPhrase = moment(ttl).fromNow();
+    const ttlPhrase = relativeTime(ttl);
 
     return (
       <div>

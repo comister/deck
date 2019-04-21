@@ -1,17 +1,17 @@
 import * as React from 'react';
 import { get } from 'lodash';
-import { FormikErrors, FormikValues } from 'formik';
 
 import {
   Application,
-  IStage,
-  ReactInjector,
-  TaskMonitor,
-  WizardModal,
   FirewallLabels,
   IModalComponentProps,
-  noop,
+  IStage,
+  ReactInjector,
   ReactModal,
+  TaskMonitor,
+  WizardModal,
+  WizardPage,
+  noop,
 } from '@spinnaker/core';
 
 import { AwsReactInjector } from 'amazon/reactShims';
@@ -85,12 +85,12 @@ export class AmazonCloneServerGroupModal extends React.Component<
     this.configureCommand();
   };
 
-  private onTaskComplete() {
+  private onTaskComplete = () => {
     this.props.application.serverGroups.refresh();
     this.props.application.serverGroups.onNextRefresh(null, this.onApplicationRefresh);
-  }
+  };
 
-  protected onApplicationRefresh(): void {
+  protected onApplicationRefresh = (): void => {
     if (this._isUnmounted) {
       return;
     }
@@ -123,18 +123,10 @@ export class AmazonCloneServerGroupModal extends React.Component<
         ReactInjector.$state.go(transitionTo, newStateParams);
       }
     }
-  }
+  };
 
   private initializeCommand = () => {
     const { command } = this.props;
-    if (command.viewState.imageId) {
-      const foundImage = command.backingData.packageImages.filter(image => {
-        return image.amis[command.region] && image.amis[command.region].includes(command.viewState.imageId);
-      });
-      if (foundImage.length) {
-        command.amiName = foundImage[0].imageName;
-      }
-    }
 
     command.credentialsChanged(command);
     command.regionChanged(command);
@@ -144,14 +136,19 @@ export class AmazonCloneServerGroupModal extends React.Component<
   private configureCommand = () => {
     const { application, command } = this.props;
     AwsReactInjector.awsServerGroupConfigurationService.configureCommand(application, command).then(() => {
-      if (['clone', 'create'].includes(command.viewState.mode)) {
-        if (!command.backingData.packageImages.length) {
-          command.viewState.useAllImageSelection = true;
-        }
-      }
-
       this.initializeCommand();
       this.setState({ loaded: true, requiresTemplateSelection: false });
+    });
+  };
+
+  private normalizeCommand = ({ tags }: IAmazonServerGroupCommand) => {
+    if (!tags) {
+      return;
+    }
+    Object.keys(tags).forEach(key => {
+      if (!key.length && !tags[key].length) {
+        delete tags[key];
+      }
     });
   };
 
@@ -163,6 +160,7 @@ export class AmazonCloneServerGroupModal extends React.Component<
   }
 
   private submit = (command: IAmazonServerGroupCommand): void => {
+    this.normalizeCommand(command);
     const forPipelineConfig = command.viewState.mode === 'editPipeline' || command.viewState.mode === 'createPipeline';
     if (forPipelineConfig) {
       this.props.closeModal && this.props.closeModal(command);
@@ -171,11 +169,6 @@ export class AmazonCloneServerGroupModal extends React.Component<
         ReactInjector.serverGroupWriter.cloneServerGroup(command, this.props.application),
       );
     }
-  };
-
-  private validate = (_values: FormikValues): FormikErrors<IAmazonServerGroupCommand> => {
-    const errors = {} as FormikErrors<IAmazonServerGroupCommand>;
-    return errors;
   };
 
   public render() {
@@ -202,16 +195,61 @@ export class AmazonCloneServerGroupModal extends React.Component<
         dismissModal={dismissModal}
         closeModal={this.submit}
         submitButtonLabel={command.viewState.submitButtonLabel}
-        validate={this.validate}
-      >
-        <ServerGroupBasicSettings app={application} done={true} />
-        <ServerGroupLoadBalancers done={true} />
-        <ServerGroupSecurityGroups done={true} />
-        <ServerGroupInstanceType done={true} />
-        <ServerGroupCapacity done={true} />
-        <ServerGroupZones done={true} />
-        <ServerGroupAdvancedSettings app={application} done={true} />
-      </WizardModal>
+        render={({ formik, nextIdx, wizard }) => (
+          <>
+            <WizardPage
+              label="Basic Settings"
+              wizard={wizard}
+              order={nextIdx()}
+              render={({ innerRef }) => <ServerGroupBasicSettings ref={innerRef} formik={formik} app={application} />}
+            />
+
+            <WizardPage
+              label="Load Balancers"
+              wizard={wizard}
+              order={nextIdx()}
+              render={({ innerRef }) => <ServerGroupLoadBalancers ref={innerRef} formik={formik} />}
+            />
+
+            <WizardPage
+              label={FirewallLabels.get('Firewalls')}
+              wizard={wizard}
+              order={nextIdx()}
+              render={({ innerRef }) => <ServerGroupSecurityGroups ref={innerRef} formik={formik} />}
+            />
+
+            <WizardPage
+              label="Instance Type"
+              wizard={wizard}
+              order={nextIdx()}
+              render={({ innerRef }) => <ServerGroupInstanceType ref={innerRef} formik={formik} />}
+            />
+
+            <WizardPage
+              label="Capacity"
+              wizard={wizard}
+              order={nextIdx()}
+              render={({ innerRef }) => <ServerGroupCapacity ref={innerRef} formik={formik} />}
+            />
+
+            <WizardPage
+              label="Availability Zones"
+              wizard={wizard}
+              order={nextIdx()}
+              render={({ innerRef }) => <ServerGroupZones ref={innerRef} formik={formik} />}
+            />
+
+            <WizardPage
+              label="Advanced Settings"
+              wizard={wizard}
+              order={nextIdx()}
+              render={({ innerRef }) => (
+                <ServerGroupAdvancedSettings ref={innerRef} formik={formik} app={application} />
+              )}
+            />
+          </>
+        )}
+      />
     );
   }
 }

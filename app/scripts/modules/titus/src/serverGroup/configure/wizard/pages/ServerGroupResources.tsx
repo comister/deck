@@ -1,10 +1,10 @@
 import * as React from 'react';
-import { FormikErrors } from 'formik';
 import Select, { Option } from 'react-select';
 
-import { IWizardPageProps, wizardPage, HelpField } from '@spinnaker/core';
+import { HelpField, IWizardPageComponent } from '@spinnaker/core';
 
 import { ITitusServerGroupCommand } from '../../../configure/serverGroupConfiguration.service';
+import { FormikProps } from 'formik';
 
 const mountPermOptions = [
   { label: 'Read and Write', value: 'RW' },
@@ -12,13 +12,14 @@ const mountPermOptions = [
   { label: 'Write Only', value: 'WO' },
 ];
 
-export type IServerGroupResourcesProps = IWizardPageProps<ITitusServerGroupCommand>;
+export interface IServerGroupResourcesProps {
+  formik: FormikProps<ITitusServerGroupCommand>;
+}
 
-class ServerGroupResourcesImpl extends React.Component<IServerGroupResourcesProps> {
-  public static LABEL = 'Resources';
-
+export class ServerGroupResources extends React.Component<IServerGroupResourcesProps>
+  implements IWizardPageComponent<ITitusServerGroupCommand> {
   public validate(values: ITitusServerGroupCommand) {
-    const errors: FormikErrors<ITitusServerGroupCommand> = {};
+    const errors = {} as any;
 
     if (!values.resources || typeof values.resources.cpu === 'string') {
       errors.resources = 'CPU is required.';
@@ -204,5 +205,3 @@ class ServerGroupResourcesImpl extends React.Component<IServerGroupResourcesProp
     );
   }
 }
-
-export const ServerGroupResources = wizardPage(ServerGroupResourcesImpl);

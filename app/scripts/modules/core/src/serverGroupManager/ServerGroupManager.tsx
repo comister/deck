@@ -1,15 +1,13 @@
 import * as React from 'react';
 import * as classNames from 'classnames';
 
-import {
-  Application,
-  IClusterSubgroup,
-  IInstanceCounts,
-  IServerGroup,
-  ISortFilter,
-  ReactInjector,
-  ServerGroup,
-} from 'core';
+import { Application } from 'core/application';
+import { IClusterSubgroup } from 'core/cluster';
+import { IInstanceCounts, IServerGroup } from 'core/domain';
+import { ISortFilter } from 'core/filterModel';
+import { ReactInjector } from 'core/reactShims';
+import { ServerGroup } from 'core/serverGroup';
+
 import { ServerGroupManagerHeading } from './ServerGroupManagerHeading';
 
 interface IServerGroupManagerProps {
@@ -65,7 +63,7 @@ export class ServerGroupManager extends React.Component<IServerGroupManagerProps
   };
 
   public render() {
-    const { application, sortFilter, grouping, serverGroups } = this.props;
+    const { application, sortFilter, grouping, serverGroups, manager } = this.props;
     const classes = {
       active: this.isSelected(),
       clickable: true,
@@ -79,6 +77,9 @@ export class ServerGroupManager extends React.Component<IServerGroupManagerProps
           onClick={this.handleClick}
           health={this.buildHealthCounts()}
           provider={serverGroups[0].type}
+          heading={manager}
+          grouping={grouping}
+          app={application}
         />
 
         {serverGroups.map((sg: IServerGroup) => (

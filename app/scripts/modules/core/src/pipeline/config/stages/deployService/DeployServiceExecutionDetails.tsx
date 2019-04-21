@@ -1,8 +1,7 @@
 import * as React from 'react';
 
-import { ExecutionDetailsSection, IExecutionDetailsSectionProps } from 'core/pipeline/config/stages/core';
+import { ExecutionDetailsSection, IExecutionDetailsSectionProps, StageFailureMessage } from 'core/pipeline';
 import { AccountTag } from 'core/account';
-import { StageFailureMessage } from 'core/pipeline/details';
 
 export function DeployServiceExecutionDetails(props: IExecutionDetailsSectionProps) {
   const { stage } = props;
@@ -25,6 +24,8 @@ export function DeployServiceExecutionDetails(props: IExecutionDetailsSectionPro
   );
 }
 
+// TODO: refactor this to not use namespace
+// eslint-disable-next-line
 export namespace DeployServiceExecutionDetails {
   export const title = 'deployServiceConfig';
 }

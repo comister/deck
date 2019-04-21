@@ -1,5 +1,11 @@
 import { cloneDeep, merge } from 'lodash';
 
+export interface IAdditionalHelpLinks {
+  text: string;
+  url: string;
+  icon?: string;
+}
+
 export interface IProviderSettings {
   defaults: any;
   resetToOriginal?: () => void;
@@ -16,41 +22,48 @@ export interface INotificationSettings {
     enabled: boolean;
   };
   hipchat: {
-    enabled: boolean;
     botName: string;
+    enabled: boolean;
   };
   sms: {
     enabled: boolean;
   };
   slack: {
-    enabled: boolean;
     botName: string;
+    enabled: boolean;
+  };
+  githubstatus: {
+    enabled: boolean;
   };
 }
 
 export interface IFeatures {
+  [key: string]: any;
+  artifacts?: boolean;
+  artifactsRewrite?: boolean;
   canary?: boolean;
+  chaosMonkey?: boolean;
+  displayTimestampsInUserLocalTime?: boolean;
+  dockerBake?: boolean;
   entityTags?: boolean;
   fiatEnabled?: boolean;
   iapRefresherEnabled?: boolean;
-  pipelines?: boolean;
-  notifications?: boolean;
-  clusterDiff?: boolean;
-  roscoMode?: boolean;
-  chaosMonkey?: boolean;
   // whether stages affecting infrastructure (like "Create Load Balancer") should be enabled or not
   infrastructureStages?: boolean;
   jobs?: boolean;
-  snapshots?: boolean;
-  dockerBake?: boolean;
-  pagerDuty?: boolean;
-  pipelineTemplates?: boolean;
-  versionedProviders?: boolean;
-  travis?: boolean;
+  managedPipelineTemplatesV2UI?: boolean;
   managedServiceAccounts?: boolean;
+  notifications?: boolean;
+  pagerDuty?: boolean;
+  pipelines?: boolean;
+  pipelineTemplates?: boolean;
+  quietPeriod?: boolean;
+  roscoMode?: boolean;
+  snapshots?: boolean;
+  travis?: boolean;
+  versionedProviders?: boolean;
   wercker?: boolean;
-  triggerViaEcho?: boolean;
-  [key: string]: any;
+  savePipelinesStageEnabled?: boolean;
 }
 
 export interface IDockerInsightSettings {
@@ -58,10 +71,19 @@ export interface IDockerInsightSettings {
   url: string;
 }
 
+export interface INewApplicationDefaults {
+  chaosMonkey?: boolean;
+}
+
 export interface ISpinnakerSettings {
   [key: string]: any;
 
-  analytics: { ga?: string };
+  analytics: {
+    customConfig?: {
+      siteSpeedSampleRate?: number;
+    };
+    ga?: string;
+  };
   authEnabled: boolean;
   authEndpoint: string;
   authTtl: number;
@@ -89,18 +111,21 @@ export interface ISpinnakerSettings {
   };
   feature: IFeatures;
   feedback?: {
-    url: string;
-    text?: string;
     icon?: string;
+    text?: string;
+    url: string;
   };
+  additionalHelpLinks?: IAdditionalHelpLinks[];
   gateUrl: string;
   gitSources: string[];
   maxPipelineAgeDays: number;
+  newApplicationDefaults: INewApplicationDefaults;
   notifications: INotificationSettings;
+  onDemandClusterThreshold: number;
   pagerDuty?: {
     accountName?: string;
-    defaultSubject?: string;
     defaultDetails?: string;
+    defaultSubject?: string;
     required?: boolean;
   };
   pollSchedule: number;
@@ -108,6 +133,7 @@ export interface ISpinnakerSettings {
     [key: string]: IProviderSettings; // allows custom providers not typed in here (good for testing too)
   };
   pubsubProviders: string[];
+  quietPeriod: [string | number, string | number];
   resetProvider: (provider: string) => () => void;
   resetToOriginal: () => void;
   searchVersion: 1 | 2;

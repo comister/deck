@@ -6,7 +6,7 @@ import { AccountService, Registry, StageConstants } from '@spinnaker/core';
 
 module.exports = angular
   .module('spinnaker.oracle.pipeline.stage.disableAsgStage', [
-    require('core/application/modal/platformHealthOverride.directive.js').name,
+    require('core/application/modal/platformHealthOverride.directive').name,
   ])
   .config(function() {
     Registry.pipeline.registerStage({
@@ -27,34 +27,37 @@ module.exports = angular
       ],
     });
   })
-  .controller('oracleDisableAsgStageCtrl', function($scope) {
-    let stage = $scope.stage;
+  .controller('oracleDisableAsgStageCtrl', [
+    '$scope',
+    function($scope) {
+      let stage = $scope.stage;
 
-    let provider = 'oracle';
+      let provider = 'oracle';
 
-    $scope.state = {
-      accounts: false,
-      regionsLoaded: false,
-    };
+      $scope.state = {
+        accounts: false,
+        regionsLoaded: false,
+      };
 
-    AccountService.listAccounts(provider).then(function(accounts) {
-      $scope.accounts = accounts;
-      $scope.state.accounts = true;
-    });
+      AccountService.listAccounts(provider).then(function(accounts) {
+        $scope.accounts = accounts;
+        $scope.state.accounts = true;
+      });
 
-    $scope.targets = StageConstants.TARGET_LIST;
+      $scope.targets = StageConstants.TARGET_LIST;
 
-    stage.regions = stage.regions || [];
-    stage.cloudProvider = provider;
+      stage.regions = stage.regions || [];
+      stage.cloudProvider = provider;
 
-    if (!stage.credentials && $scope.application.defaultCredentials.oracle) {
-      stage.credentials = $scope.application.defaultCredentials.oracle;
-    }
-    if (!stage.regions.length && $scope.application.defaultRegions.gce) {
-      stage.regions.push($scope.application.defaultRegions.oracle);
-    }
+      if (!stage.credentials && $scope.application.defaultCredentials.oracle) {
+        stage.credentials = $scope.application.defaultCredentials.oracle;
+      }
+      if (!stage.regions.length && $scope.application.defaultRegions.gce) {
+        stage.regions.push($scope.application.defaultRegions.oracle);
+      }
 
-    if (!stage.target) {
-      stage.target = $scope.targets[0].val;
-    }
-  });
+      if (!stage.target) {
+        stage.target = $scope.targets[0].val;
+      }
+    },
+  ]);

@@ -9,6 +9,7 @@ import {
   IGitTrigger,
   IPipeline,
   IStage,
+  IArtifactAccountPair,
 } from '@spinnaker/core';
 
 import {
@@ -28,6 +29,7 @@ export interface IAppengineServerGroupCommand {
   freeFormDetails?: string;
   configFilepaths?: string[];
   configFiles?: string[];
+  configArtifacts?: IArtifactAccountPair[];
   applicationDirectoryRoot: string;
   branch?: string;
   repositoryUrl?: string;
@@ -36,6 +38,7 @@ export interface IAppengineServerGroupCommand {
   selectedProvider: string;
   promote?: boolean;
   stopPreviousVersion?: boolean;
+  suppressVersionString?: boolean;
   type?: string;
   backingData: any;
   viewState: IViewState;
@@ -91,15 +94,17 @@ export class AppengineServerGroupCommandBuilder {
     return pipeline.expectedArtifacts || [];
   }
 
-  constructor(private $q: IQService) {
-    'ngInject';
-  }
+  public static $inject = ['$q'];
+  constructor(private $q: IQService) {}
 
   public buildNewServerGroupCommand(
     app: Application,
-    selectedProvider = 'appengine',
+    selectedProvider: string,
     mode = 'create',
   ): IPromise<IAppengineServerGroupCommand> {
+    if (selectedProvider == null) {
+      selectedProvider = 'appengine';
+    }
     const dataToFetch = {
       accounts: AccountService.getAllAccountDetailsForProvider('appengine'),
       storageAccounts: StorageAccountReader.getStorageAccounts(),

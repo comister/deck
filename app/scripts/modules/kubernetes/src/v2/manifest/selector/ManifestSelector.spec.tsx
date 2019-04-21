@@ -1,13 +1,22 @@
 import * as React from 'react';
 import { mount } from 'enzyme';
-import { Creatable, Option } from 'react-select';
+import Select, { Creatable, Option } from 'react-select';
 import { $q } from 'ngimport';
 import Spy = jasmine.Spy;
 
-import { AccountService, noop, NgReact } from 'core';
+import {
+  AccountSelectInput,
+  AccountService,
+  ScopeClusterSelector,
+  createFakeReactSyntheticEvent,
+  noop,
+} from '@spinnaker/core';
 
 import { ManifestKindSearchService } from 'kubernetes/v2/manifest/ManifestKindSearch';
-import { ManifestSelector } from 'kubernetes/v2/manifest/selector/ManifestSelector';
+import { ManifestSelector, IManifestSelectorState } from 'kubernetes/v2/manifest/selector/ManifestSelector';
+import { SelectorMode } from 'kubernetes/v2/manifest/selector/IManifestSelector';
+import LabelEditor from 'kubernetes/v2/manifest/selector/labelEditor/LabelEditor';
+import { IManifestLabelSelector } from 'kubernetes/v2/manifest/selector/IManifestLabelSelector';
 
 describe('<ManifestSelector />', () => {
   let searchService: Spy;
@@ -59,6 +68,207 @@ describe('<ManifestSelector />', () => {
         .first();
       expect((name.props().value as Option).value).toEqual('my-config-map');
     });
+
+    it('renders kinds from input props', () => {
+      const wrapper = component({
+        account: 'my-account',
+        kinds: ['configMap', 'deployment'],
+        location: 'default',
+        mode: SelectorMode.Label,
+      });
+
+      const kinds = wrapper
+        .find({ label: 'Kinds' })
+        .find(Select)
+        .first();
+      expect(kinds.props().value).toEqual(['configMap', 'deployment']);
+    });
+
+    it('renders labels from input props', () => {
+      const labelSelectors: IManifestLabelSelector[] = [
+        {
+          key: 'label-key',
+          kind: 'EQUALS',
+          values: ['label-value'],
+        },
+      ];
+      const wrapper = component({
+        account: 'my-account',
+        kinds: ['configMap', 'deployment'],
+        labelSelectors: {
+          selectors: labelSelectors,
+        },
+        location: 'default',
+        mode: SelectorMode.Label,
+      });
+
+      const labelEditor = wrapper.find(LabelEditor);
+      expect(labelEditor.prop('labelSelectors')).toEqual(labelSelectors);
+    });
+
+    describe('cluster dropdown', () => {
+      const buildPropsWithApplicationData = (data: any[]) => ({
+        modes: [SelectorMode.Static, SelectorMode.Dynamic],
+        application: { getDataSource: () => ({ data }) },
+      });
+
+      it("includes cluster if selected kind matches the cluster's server groups' kind", () => {
+        const wrapper = component(
+          {
+            kind: 'replicaSet',
+            account: 'my-account',
+            location: 'default',
+            mode: SelectorMode.Dynamic,
+          },
+          buildPropsWithApplicationData([
+            {
+              name: 'replicaSet my-replica-set-v000',
+              account: 'my-account',
+              region: 'default',
+              cluster: 'replicaSet my-replica-set',
+            },
+          ]),
+        );
+
+        const cluster = wrapper
+          .find({ label: 'Cluster' })
+          .find(ScopeClusterSelector)
+          .first();
+        expect(cluster.props().clusters).toEqual(['replicaSet my-replica-set']);
+      });
+
+      it("does not include cluster if selected kind does not match cluster's server groups' kind", () => {
+        const wrapper = component(
+          {
+            kind: 'statefulSet',
+            account: 'my-account',
+            location: 'default',
+            mode: SelectorMode.Dynamic,
+          },
+          buildPropsWithApplicationData([
+            {
+              name: 'replicaSet my-replica-set-v000',
+              account: 'my-account',
+              region: 'default',
+              cluster: 'replicaSet my-replica-set',
+            },
+          ]),
+        );
+
+        const cluster = wrapper
+          .find({ label: 'Cluster' })
+          .find(ScopeClusterSelector)
+          .first();
+        expect(cluster.props().clusters).toEqual([]);
+      });
+
+      it('handles case in which a cluster has two different kinds of server groups', () => {
+        const wrapper = component(
+          {
+            kind: 'statefulSet',
+            account: 'my-account',
+            location: 'default',
+            mode: SelectorMode.Dynamic,
+          },
+          buildPropsWithApplicationData([
+            {
+              name: 'replicaSet my-replica-set-v000',
+              account: 'my-account',
+              region: 'default',
+              cluster: 'my-cluster',
+            },
+            {
+              name: 'statefulSet my-stateful-set-v000',
+              account: 'my-account',
+              region: 'default',
+              cluster: 'my-cluster',
+            },
+          ]),
+        );
+
+        const cluster = wrapper
+          .find({ label: 'Cluster' })
+          .find(ScopeClusterSelector)
+          .first();
+        expect(cluster.props().clusters).toEqual(['my-cluster']);
+      });
+
+      it("does not include cluster if the cluster's server groups are managed", () => {
+        const wrapper = component(
+          {
+            kind: 'replicaSet',
+            account: 'my-account',
+            location: 'default',
+            mode: SelectorMode.Dynamic,
+          },
+          buildPropsWithApplicationData([
+            {
+              name: 'replicaSet my-replica-set-v000',
+              account: 'my-account',
+              region: 'default',
+              cluster: 'my-cluster',
+              serverGroupManagers: ['deployment my-deployment'],
+            },
+          ]),
+        );
+
+        const cluster = wrapper
+          .find({ label: 'Cluster' })
+          .find(ScopeClusterSelector)
+          .first();
+        expect(cluster.props().clusters).toEqual([]);
+      });
+
+      it('filters clusters by account', () => {
+        const wrapper = component(
+          {
+            kind: 'replicaSet',
+            account: 'my-other-account',
+            location: 'default',
+            mode: SelectorMode.Dynamic,
+          },
+          buildPropsWithApplicationData([
+            {
+              name: 'replicaSet my-replica-set-v000',
+              account: 'my-account',
+              region: 'default',
+              cluster: 'my-cluster',
+            },
+          ]),
+        );
+
+        const cluster = wrapper
+          .find({ label: 'Cluster' })
+          .find(ScopeClusterSelector)
+          .first();
+        expect(cluster.props().clusters).toEqual([]);
+      });
+
+      it('filters clusters by namespace', () => {
+        const wrapper = component(
+          {
+            kind: 'replicaSet',
+            account: 'my-account',
+            location: 'my-other-namespace',
+            mode: SelectorMode.Dynamic,
+          },
+          buildPropsWithApplicationData([
+            {
+              name: 'replicaSet my-replica-set-v000',
+              account: 'my-account',
+              region: 'default',
+              cluster: 'my-cluster',
+            },
+          ]),
+        );
+
+        const cluster = wrapper
+          .find({ label: 'Cluster' })
+          .find(ScopeClusterSelector)
+          .first();
+        expect(cluster.props().clusters).toEqual([]);
+      });
+    });
   });
 
   describe('change handlers', () => {
@@ -92,6 +302,24 @@ describe('<ManifestSelector />', () => {
       expect(searchService).toHaveBeenCalledWith('configMap', 'kube-system', 'my-account');
     });
 
+    it('calls the search service after updating the `Account` field', () => {
+      const wrapper = component({
+        manifestName: 'configMap my-config-map',
+        account: 'my-account',
+        location: 'default',
+      });
+      wrapper.setState({
+        accounts: [
+          { name: 'my-account', namespaces: ['default'] },
+          { name: 'my-other-account', namespaces: ['default'] },
+        ],
+      } as IManifestSelectorState);
+
+      const account = wrapper.find(AccountSelectInput).first();
+      account.props().onChange(createFakeReactSyntheticEvent({ value: 'my-other-account' }));
+      expect(searchService).toHaveBeenCalledWith('configMap', 'default', 'my-other-account');
+    });
+
     it('clears namespace when changing account if account does not have selected namespace', () => {
       const wrapper = component({
         manifestName: 'configMap my-config-map',
@@ -103,13 +331,141 @@ describe('<ManifestSelector />', () => {
           { name: 'my-account', namespaces: ['default'] },
           { name: 'my-other-account', namespaces: ['other-default'] },
         ],
-      });
+      } as IManifestSelectorState);
 
-      const account = wrapper.find(NgReact.AccountSelectField).first();
-      account.props().onChange('my-other-account');
+      const account = wrapper.find(AccountSelectInput).first();
+      account.props().onChange(createFakeReactSyntheticEvent({ value: 'my-other-account' }));
       expect(wrapper.instance().state.selector.location).toBeFalsy();
+    });
+  });
+
+  describe('mode change', () => {
+    it('handles kind during static -> dynamic mode transition', () => {
+      const wrapper = component(
+        {
+          manifestName: 'configMap my-config-map',
+          account: 'my-account',
+          location: 'default',
+        },
+        { modes: [SelectorMode.Dynamic, SelectorMode.Static] },
+      );
+
+      wrapper
+        .find({ id: 'dynamic' })
+        .first()
+        .props()
+        .onChange();
+      expect(wrapper.state().selector.kind).toEqual('configMap');
+    });
+
+    it('handles kind during static -> label mode transition', () => {
+      const wrapper = component(
+        {
+          manifestName: 'configMap my-config-map',
+          account: 'my-account',
+          location: 'default',
+        },
+        { modes: [SelectorMode.Dynamic, SelectorMode.Static, SelectorMode.Label] },
+      );
+
+      wrapper
+        .find({ id: 'label' })
+        .first()
+        .props()
+        .onChange();
+      expect(wrapper.state().selector.kind).toBeNull();
+      expect(wrapper.state().selector.kinds).toEqual([]);
+      expect(wrapper.state().selector.manifestName).toBeNull();
+    });
+
+    it('handles kind during dynamic -> static mode transition', () => {
+      const wrapper = component(
+        {
+          account: 'my-account',
+          location: 'default',
+          kind: 'configMap',
+          mode: SelectorMode.Dynamic,
+        },
+        { modes: [SelectorMode.Dynamic, SelectorMode.Static] },
+      );
+
+      wrapper
+        .find({ id: 'static' })
+        .first()
+        .props()
+        .onChange();
+      // `manifestName` is composed of `${kind} ${resourceName}`
+      expect(wrapper.state().selector.manifestName).toEqual('configMap');
+    });
+
+    it('handles kind during dynamic -> label mode transition', () => {
+      const wrapper = component(
+        {
+          account: 'my-account',
+          location: 'default',
+          kind: 'configMap',
+          mode: SelectorMode.Dynamic,
+        },
+        { modes: [SelectorMode.Dynamic, SelectorMode.Static, SelectorMode.Label] },
+      );
+
+      wrapper
+        .find({ id: 'label' })
+        .first()
+        .props()
+        .onChange();
+      expect(wrapper.state().selector.kind).toBeNull();
+      expect(wrapper.state().selector.kinds).toEqual([]);
+      expect(wrapper.state().selector.manifestName).toBeNull();
+    });
+
+    it('handles kind during label -> static mode transition', () => {
+      const wrapper = component(
+        {
+          account: 'my-account',
+          location: 'default',
+          kinds: ['configMap'],
+          labelSelectors: {
+            selectors: [],
+          },
+          mode: SelectorMode.Label,
+        },
+        { modes: [SelectorMode.Dynamic, SelectorMode.Static, SelectorMode.Label] },
+      );
+
+      wrapper
+        .find({ id: 'static' })
+        .first()
+        .props()
+        .onChange();
+      expect(wrapper.state().selector.kind).toBeNull();
+      expect(wrapper.state().selector.kinds).toBeNull();
+    });
+
+    it('handles kind during label -> dynamic mode transition', () => {
+      const wrapper = component(
+        {
+          account: 'my-account',
+          location: 'default',
+          kinds: ['configMap'],
+          labelSelectors: {
+            selectors: [],
+          },
+          mode: SelectorMode.Label,
+        },
+        { modes: [SelectorMode.Dynamic, SelectorMode.Static, SelectorMode.Label] },
+      );
+
+      wrapper
+        .find({ id: 'dynamic' })
+        .first()
+        .props()
+        .onChange();
+      expect(wrapper.state().selector.kind).toBeNull();
+      expect(wrapper.state().selector.kinds).toBeNull();
     });
   });
 });
 
-const component = (selector: any) => mount(<ManifestSelector onChange={noop} selector={selector} /> as any);
+const component = (selector: any, props: any = {}) =>
+  mount<ManifestSelector>(<ManifestSelector onChange={noop} selector={selector} {...props} /> as any);

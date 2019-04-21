@@ -58,6 +58,7 @@ export * from './pageTitle';
 export * from './pagerDuty';
 export * from './pipeline';
 export * from './presentation';
+export * from './projects';
 export * from './pubsub';
 
 export * from './reactShims';
@@ -83,5 +84,7 @@ export * from './utils';
 export * from './validation';
 
 export * from './widgets';
+
+export * from './yamlEditor';
 
 export * from './core.module';

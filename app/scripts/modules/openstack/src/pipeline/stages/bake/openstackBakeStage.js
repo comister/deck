@@ -13,13 +13,13 @@ import {
 } from '@spinnaker/core';
 
 module.exports = angular
-  .module('spinnaker.openstack.pipeline.stage.bakeStage', [require('./bakeExecutionDetails.controller.js').name])
+  .module('spinnaker.openstack.pipeline.stage.bakeStage', [require('./bakeExecutionDetails.controller').name])
   .config(function() {
     Registry.pipeline.registerStage({
       provides: 'bake',
       cloudProvider: 'openstack',
       label: 'Bake',
-      description: 'Bakes an image in the specified region',
+      description: 'Bakes an image',
       templateUrl: require('./bakeStage.html'),
       executionDetailsUrl: require('./bakeExecutionDetails.html'),
       executionLabelComponent: BakeExecutionLabel,
@@ -31,111 +31,118 @@ module.exports = angular
         { type: 'requiredField', fieldName: 'package' },
         { type: 'requiredField', fieldName: 'regions' },
         {
-          type: 'stageOrTriggerBeforeType',
-          stageTypes: ['jenkins', 'travis'],
+          type: 'upstreamVersionProvided',
           checkParentTriggers: true,
-          message:
-            'Bake stages should always have a Jenkins/Travis stage or trigger preceding them.<br> Otherwise, ' +
-            'Spinnaker will bake and deploy the most-recently built package.',
+          getMessage: labels =>
+            'Bake stages should always have a stage or trigger preceding them that provides version information: ' +
+            '<ul>' +
+            labels.map(label => `<li>${label}</li>`).join('') +
+            '</ul>' +
+            'Otherwise, Spinnaker will bake and deploy the most-recently built package.',
         },
       ],
       restartable: true,
     });
   })
-  .controller('openstackBakeStageCtrl', function($scope, $q, $uibModal) {
-    $scope.stage.extendedAttributes = $scope.stage.extendedAttributes || {};
-    $scope.stage.regions = $scope.stage.regions || [];
+  .controller('openstackBakeStageCtrl', [
+    '$scope',
+    '$q',
+    '$uibModal',
+    function($scope, $q, $uibModal) {
+      $scope.stage.extendedAttributes = $scope.stage.extendedAttributes || {};
+      $scope.stage.regions = $scope.stage.regions || [];
 
-    if (!$scope.stage.user) {
-      $scope.stage.user = AuthenticationService.getAuthenticatedUser().name;
-    }
-
-    $scope.viewState = {
-      loading: true,
-    };
-
-    function initialize() {
-      $q.all({
-        regions: BakeryReader.getRegions('openstack'),
-        baseOsOptions: BakeryReader.getBaseOsOptions('openstack'),
-        baseLabelOptions: BakeryReader.getBaseLabelOptions(),
-      }).then(function(results) {
-        $scope.regions = results.regions;
-        if ($scope.regions.length === 1) {
-          $scope.stage.region = $scope.regions[0];
-        } else if (!$scope.regions.includes($scope.stage.region)) {
-          delete $scope.stage.region;
-        }
-        if (!$scope.stage.regions.length && $scope.application.defaultRegions.openstack) {
-          $scope.stage.regions.push($scope.application.defaultRegions.openstack);
-        }
-        if (!$scope.stage.regions.length && $scope.application.defaultRegions.openstack) {
-          $scope.stage.regions.push($scope.application.defaultRegions.openstack);
-        }
-        $scope.baseOsOptions = results.baseOsOptions.baseImages;
-        $scope.baseLabelOptions = results.baseLabelOptions;
-
-        if (!$scope.stage.baseOs && $scope.baseOsOptions && $scope.baseOsOptions.length) {
-          $scope.stage.baseOs = $scope.baseOsOptions[0].id;
-        }
-        $scope.viewState.roscoMode = SETTINGS.feature.roscoMode;
-        $scope.showAdvancedOptions = showAdvanced();
-        $scope.viewState.loading = false;
-      });
-    }
-
-    function showAdvanced() {
-      let stage = $scope.stage;
-      return !!(stage.templateFileName || (stage.extendedAttributes && _.size(stage.extendedAttributes) > 0));
-    }
-
-    function deleteEmptyProperties() {
-      _.forOwn($scope.stage, function(val, key) {
-        if (val === '') {
-          delete $scope.stage[key];
-        }
-      });
-    }
-
-    this.addExtendedAttribute = function() {
-      if (!$scope.stage.extendedAttributes) {
-        $scope.stage.extendedAttributes = {};
+      if (!$scope.stage.user) {
+        $scope.stage.user = AuthenticationService.getAuthenticatedUser().name;
       }
-      $uibModal
-        .open({
-          templateUrl: PipelineTemplates.addExtendedAttributes,
-          controller: 'bakeStageAddExtendedAttributeController',
-          controllerAs: 'addExtendedAttribute',
-          resolve: {
-            extendedAttribute: function() {
-              return {
-                key: '',
-                value: '',
-              };
+
+      $scope.viewState = {
+        loading: true,
+      };
+
+      function initialize() {
+        $q.all({
+          regions: BakeryReader.getRegions('openstack'),
+          baseOsOptions: BakeryReader.getBaseOsOptions('openstack'),
+          baseLabelOptions: BakeryReader.getBaseLabelOptions(),
+        }).then(function(results) {
+          $scope.regions = results.regions;
+          if ($scope.regions.length === 1) {
+            $scope.stage.region = $scope.regions[0];
+          } else if (!$scope.regions.includes($scope.stage.region)) {
+            delete $scope.stage.region;
+          }
+          if (!$scope.stage.regions.length && $scope.application.defaultRegions.openstack) {
+            $scope.stage.regions.push($scope.application.defaultRegions.openstack);
+          }
+          if (!$scope.stage.regions.length && $scope.application.defaultRegions.openstack) {
+            $scope.stage.regions.push($scope.application.defaultRegions.openstack);
+          }
+          $scope.baseOsOptions = results.baseOsOptions.baseImages;
+          $scope.baseLabelOptions = results.baseLabelOptions;
+
+          if (!$scope.stage.baseOs && $scope.baseOsOptions && $scope.baseOsOptions.length) {
+            $scope.stage.baseOs = $scope.baseOsOptions[0].id;
+          }
+          $scope.viewState.roscoMode = SETTINGS.feature.roscoMode;
+          $scope.showAdvancedOptions = showAdvanced();
+          $scope.viewState.loading = false;
+        });
+      }
+
+      function showAdvanced() {
+        let stage = $scope.stage;
+        return !!(stage.templateFileName || (stage.extendedAttributes && _.size(stage.extendedAttributes) > 0));
+      }
+
+      function deleteEmptyProperties() {
+        _.forOwn($scope.stage, function(val, key) {
+          if (val === '') {
+            delete $scope.stage[key];
+          }
+        });
+      }
+
+      this.addExtendedAttribute = function() {
+        if (!$scope.stage.extendedAttributes) {
+          $scope.stage.extendedAttributes = {};
+        }
+        $uibModal
+          .open({
+            templateUrl: PipelineTemplates.addExtendedAttributes,
+            controller: 'bakeStageAddExtendedAttributeController',
+            controllerAs: 'addExtendedAttribute',
+            resolve: {
+              extendedAttribute: function() {
+                return {
+                  key: '',
+                  value: '',
+                };
+              },
             },
-          },
-        })
-        .result.then(function(extendedAttribute) {
-          $scope.stage.extendedAttributes[extendedAttribute.key] = extendedAttribute.value;
-        })
-        .catch(() => {});
-    };
+          })
+          .result.then(function(extendedAttribute) {
+            $scope.stage.extendedAttributes[extendedAttribute.key] = extendedAttribute.value;
+          })
+          .catch(() => {});
+      };
 
-    this.removeExtendedAttribute = function(key) {
-      delete $scope.stage.extendedAttributes[key];
-    };
+      this.removeExtendedAttribute = function(key) {
+        delete $scope.stage.extendedAttributes[key];
+      };
 
-    this.showExtendedAttributes = function() {
-      return (
-        $scope.viewState.roscoMode || ($scope.stage.extendedAttributes && _.size($scope.stage.extendedAttributes) > 0)
-      );
-    };
+      this.showExtendedAttributes = function() {
+        return (
+          $scope.viewState.roscoMode || ($scope.stage.extendedAttributes && _.size($scope.stage.extendedAttributes) > 0)
+        );
+      };
 
-    this.showTemplateFileName = function() {
-      return $scope.viewState.roscoMode || $scope.stage.templateFileName;
-    };
+      this.showTemplateFileName = function() {
+        return $scope.viewState.roscoMode || $scope.stage.templateFileName;
+      };
 
-    $scope.$watch('stage', deleteEmptyProperties, true);
+      $scope.$watch('stage', deleteEmptyProperties, true);
 
-    initialize();
-  });
+      initialize();
+    },
+  ]);

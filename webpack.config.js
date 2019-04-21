@@ -5,7 +5,7 @@ const md5 = require('md5');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
-const UglifyJSPlugin = require('uglifyjs-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
 
 const CACHE_INVALIDATE = getCacheInvalidateString();
 const NODE_MODULE_PATH = path.join(__dirname, 'node_modules');
@@ -34,17 +34,35 @@ function configure(env, webpackOpts) {
     },
     devtool: IS_PRODUCTION ? 'source-map' : 'eval',
     optimization: {
-      splitChunks: { chunks: 'all' },
-      minimizer: [],
-      // TODO(dpeach): figure out how we can minify deck-kayenta without breaking Angular DI.
-      // minimizer: IS_PRODUCTION ? [
-      //   new UglifyJSPlugin({
-      //     parallel: true,
-      //     cache: true,
-      //     test: /vendors/,
-      //     sourceMap: true,
-      //   }),
-      // ] : [], // Disable minification unless production
+      splitChunks: {
+        chunks: 'all', // enables splitting of both initial and async chunks
+        maxInitialRequests: 20, // allows up to 10 initial chunks
+        cacheGroups: {
+          // Put code matching each regexp in a separate chunk
+          core: new RegExp('/app/scripts/modules/core/'),
+          providers: new RegExp('/app/scripts/modules/(?!core)[^/]+/'),
+          vendor_A_F: new RegExp('node_modules/[a-fA-F]'),
+          vendor_G_O: new RegExp('node_modules/[g-oG-O]'),
+          vendor_P_Q: new RegExp('node_modules/[^a-oA-Or-zR-Z]'),
+          vendor_R_Z: new RegExp('node_modules/[r-zR-Z]'),
+        },
+      },
+      minimizer: IS_PRODUCTION
+        ? [
+            new TerserPlugin({
+              cache: true,
+              parallel: true,
+              sourceMap: true,
+              terserOptions: {
+                ecma: 6,
+                mangle: false,
+                output: {
+                  comments: false,
+                },
+              },
+            }),
+          ]
+        : [], // Disable minification unless production
     },
     resolve: {
       extensions: ['.json', '.ts', '.tsx', '.js', '.jsx', '.css', '.less', '.html'],

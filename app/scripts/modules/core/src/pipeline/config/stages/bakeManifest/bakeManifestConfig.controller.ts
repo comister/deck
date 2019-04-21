@@ -1,16 +1,30 @@
 import { IController, IScope } from 'angular';
 
+import { AccountService, IArtifactAccount } from 'core/account';
 import {
-  AccountService,
   ExpectedArtifactSelectorViewController,
   NgBakeManifestArtifactDelegate,
-  IArtifactAccount,
-} from 'core';
+  IArtifactAccountPair,
+} from 'core/artifact';
 import { UUIDGenerator } from 'core/utils';
 
-export interface IInputArtifact {
-  id: string;
-  account: string;
+class InputArtifact implements IArtifactAccountPair {
+  public $scope: IScope;
+  public controller: ExpectedArtifactSelectorViewController;
+  public delegate: NgBakeManifestArtifactDelegate;
+  public id: string;
+  public account: string;
+
+  constructor($scope: IScope, artifact = { id: '', account: '' }) {
+    const unserializable = { configurable: false, enumerable: false, writable: false };
+    Object.defineProperty(this, '$scope', { ...unserializable, value: $scope });
+    const delegate = new NgBakeManifestArtifactDelegate(this);
+    const controller = new ExpectedArtifactSelectorViewController(delegate);
+    Object.defineProperty(this, 'delegate', { ...unserializable, value: delegate });
+    Object.defineProperty(this, 'controller', { ...unserializable, value: controller });
+    this.id = artifact.id;
+    this.account = artifact.account;
+  }
 }
 
 export class BakeManifestConfigCtrl implements IController {
@@ -25,8 +39,8 @@ export class BakeManifestConfigCtrl implements IController {
     return inputArtifact;
   }
 
+  public static $inject = ['$scope'];
   constructor(public $scope: IScope) {
-    'ngInject';
     const { stage } = this.$scope;
     if (stage.isNew) {
       const defaultSelection = {
@@ -44,12 +58,13 @@ export class BakeManifestConfigCtrl implements IController {
           },
         ],
         inputArtifacts: [this.defaultInputArtifact()],
+        evaluateOverrideExpressions: false,
       };
 
       Object.assign(stage, defaultSelection);
     }
     this.ensureTemplateArtifact();
-    stage.inputArtifacts = stage.inputArtifacts.map((a: IInputArtifact) => this.defaultInputArtifact(a));
+    stage.inputArtifacts = stage.inputArtifacts.map((a: IArtifactAccountPair) => this.defaultInputArtifact(a));
     AccountService.getArtifactAccounts().then(accounts => {
       this.artifactAccounts = accounts;
       stage.inputArtifacts.forEach((a: InputArtifact) => {
@@ -110,22 +125,3 @@ export class BakeManifestConfigCtrl implements IController {
     );
   }
 }
-
-class InputArtifact {
-  public controller: ExpectedArtifactSelectorViewController;
-  public delegate: NgBakeManifestArtifactDelegate;
-  public id: string;
-  public account: string;
-
-  constructor(public $scope: IScope, artifact = { id: '', account: '' }) {
-    setUnserializable(this, '$scope', $scope);
-    setUnserializable(this, 'delegate', new NgBakeManifestArtifactDelegate(this));
-    setUnserializable(this, 'controller', new ExpectedArtifactSelectorViewController(this.delegate));
-    this.id = artifact.id;
-    this.account = artifact.account;
-  }
-}
-
-const setUnserializable = (obj: any, key: string, value: any) => {
-  return Object.defineProperty(obj, key, { configurable: false, enumerable: false, writable: false, value });
-};

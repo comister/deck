@@ -1,19 +1,17 @@
 import { IQService, IScope, mock } from 'angular';
 
-import { ApplicationModelBuilder, Application, noop, APPLICATION_MODEL_BUILDER } from '@spinnaker/core';
+import { ApplicationModelBuilder, Application, noop } from '@spinnaker/core';
 import { ManifestCopier } from './ManifestCopier';
 
 describe('<ManifestCopier />', () => {
   let application: Application;
 
-  beforeEach(mock.module(APPLICATION_MODEL_BUILDER));
-
   beforeEach(
-    mock.inject(($q: IQService, $rootScope: IScope, applicationModelBuilder: ApplicationModelBuilder) => {
+    mock.inject(($q: IQService, $rootScope: IScope) => {
       const $scope = $rootScope.$new();
       // The application model implicitly depends on a bunch of Angular things, which is why
       // we need the Angular mock environment (even though we're testing a React component).
-      application = applicationModelBuilder.createApplicationForTests(
+      application = ApplicationModelBuilder.createApplicationForTests(
         'app',
         {
           key: 'serverGroups',
@@ -80,18 +78,18 @@ describe('<ManifestCopier />', () => {
 
   describe('dropdown grouping & ordering', () => {
     it('sorts deployments to the top of the list', () => {
-      const state = ManifestCopier.getDerivedStateFromProps(buildProps(application));
+      const state = ManifestCopier.getState(buildProps(application));
       expect(state.manifests.map(manifest => manifest.name)[0]).toEqual('my-deployment');
     });
 
     it('only includes the most recent versioned resource', () => {
-      const state = ManifestCopier.getDerivedStateFromProps(buildProps(application));
+      const state = ManifestCopier.getState(buildProps(application));
       expect(state.manifests.map(manifest => manifest.name)).toContain('my-replicaSet-v002');
       expect(state.manifests.map(manifest => manifest.name)).not.toContain('my-replicaSet-v001');
     });
 
     it('does not include managed server groups', () => {
-      const state = ManifestCopier.getDerivedStateFromProps(buildProps(application));
+      const state = ManifestCopier.getState(buildProps(application));
       expect(state.manifests.map(manifest => manifest.name)).not.toContain('my-managed-replicaSet-v001');
     });
   });

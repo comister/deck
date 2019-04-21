@@ -1,5 +1,5 @@
 import { IPromise } from 'angular';
-import { sortBy, uniq } from 'lodash';
+import { sortBy, uniq, cloneDeep } from 'lodash';
 import { $q } from 'ngimport';
 
 import { API } from 'core/api/ApiService';
@@ -9,9 +9,6 @@ import { IStage } from 'core/domain/IStage';
 import { IPipeline } from 'core/domain/IPipeline';
 
 export interface ITriggerPipelineResponse {
-  ref: string;
-}
-export interface IEchoTriggerPipelineResponse {
   eventId: string;
 }
 export class PipelineConfigService {
@@ -53,11 +50,12 @@ export class PipelineConfigService {
 
   public static deletePipeline(applicationName: string, pipeline: IPipeline, pipelineName: string): IPromise<void> {
     return API.one(pipeline.strategy ? 'strategies' : 'pipelines')
-      .one(applicationName, pipelineName.trim())
+      .one(applicationName, encodeURIComponent(pipelineName.trim()))
       .remove();
   }
 
-  public static savePipeline(pipeline: IPipeline): IPromise<void> {
+  public static savePipeline(toSave: IPipeline): IPromise<void> {
+    const pipeline = cloneDeep(toSave);
     delete pipeline.isNew;
     pipeline.name = pipeline.name.trim();
     if (Array.isArray(pipeline.stages)) {
@@ -70,6 +68,19 @@ export class PipelineConfigService {
     }
     return API.one(pipeline.strategy ? 'strategies' : 'pipelines')
       .data(pipeline)
+      .post();
+  }
+
+  public static reorderPipelines(
+    application: string,
+    idsToIndices: { [key: string]: number },
+    isStrategy = false,
+  ): IPromise<void> {
+    return API.one(`actions/${isStrategy ? 'strategies' : 'pipelines'}/reorder`)
+      .data({
+        application,
+        idsToIndices,
+      })
       .post();
   }
 
@@ -90,28 +101,12 @@ export class PipelineConfigService {
   public static triggerPipeline(applicationName: string, pipelineName: string, body: any = {}): IPromise<string> {
     body.user = AuthenticationService.getAuthenticatedUser().name;
     return API.one('pipelines')
+      .one('v2')
       .one(applicationName)
-      .one(pipelineName)
+      .one(encodeURIComponent(pipelineName))
       .data(body)
       .post()
       .then((result: ITriggerPipelineResponse) => {
-        return result.ref.split('/').pop();
-      });
-  }
-
-  public static triggerPipelineViaEcho(
-    applicationName: string,
-    pipelineName: string,
-    body: any = {},
-  ): IPromise<string> {
-    body.user = AuthenticationService.getAuthenticatedUser().name;
-    return API.one('pipelines')
-      .one('v2')
-      .one(applicationName)
-      .one(pipelineName)
-      .data(body)
-      .post()
-      .then((result: IEchoTriggerPipelineResponse) => {
         return result.eventId;
       });
   }
@@ -156,17 +151,6 @@ export class PipelineConfigService {
       });
     }
     return uniq(upstreamStages);
-  }
-
-  public static startAdHocPipeline(body: any): IPromise<string> {
-    body.user = AuthenticationService.getAuthenticatedUser().name;
-    return API.one('pipelines')
-      .one('start')
-      .data(body)
-      .post()
-      .then((result: ITriggerPipelineResponse) => {
-        return result.ref.split('/').pop();
-      });
   }
 
   private static sortPipelines(pipelines: IPipeline[]): IPromise<IPipeline[]> {

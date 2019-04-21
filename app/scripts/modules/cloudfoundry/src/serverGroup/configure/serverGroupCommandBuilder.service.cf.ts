@@ -1,23 +1,35 @@
 import { IPromise, IQService, module } from 'angular';
 
-import { IStage, IPipeline } from '@spinnaker/core';
+import { IStage, IPipeline, Application } from '@spinnaker/core';
 
-import { ICloudFoundryApplication, ICloudFoundryServerGroup } from 'cloudfoundry/domain';
+import { ICloudFoundryApplication, ICloudFoundryEnvVar, ICloudFoundryServerGroup } from 'cloudfoundry/domain';
 import {
   ICloudFoundryCreateServerGroupCommand,
   ICloudFoundryDeployConfiguration,
 } from './serverGroupConfigurationModel.cf';
 
 export class CloudFoundryServerGroupCommandBuilder {
-  constructor(private $q: IQService) {
-    'ngInject';
+  public static buildUpdateServerGroupCommand(_originalServerGroup: any) {
+    throw new Error('Implement me!');
   }
 
-  private getSubmitButtonLabel(mode: string) {
+  private static envVarsFromObject(someObject: any): ICloudFoundryEnvVar[] {
+    const envVars = [];
+    for (const property in someObject) {
+      if (someObject.hasOwnProperty(property)) {
+        const envVar = { key: property, value: someObject[property] };
+        envVars.push(envVar);
+      }
+    }
+    return envVars;
+  }
+
+  private static getSubmitButtonLabel(mode: string) {
     switch (mode) {
       case 'createPipeline':
         return 'Add';
       case 'editPipeline':
+      case 'editClonePipeline':
         return 'Done';
       case 'clone':
         return 'Clone';
@@ -26,10 +38,10 @@ export class CloudFoundryServerGroupCommandBuilder {
     }
   }
 
-  public buildNewServerGroupCommand(
-    app: ICloudFoundryApplication,
-    defaults: any,
-  ): IPromise<ICloudFoundryCreateServerGroupCommand> {
+  public static $inject = ['$q'];
+  constructor(private $q: IQService) {}
+
+  public buildNewServerGroupCommand(app: Application, defaults: any): IPromise<ICloudFoundryCreateServerGroupCommand> {
     defaults = defaults || {};
     return this.$q.when({
       application: app.name,
@@ -40,46 +52,34 @@ export class CloudFoundryServerGroupCommandBuilder {
       credentials: '',
       viewState: {
         mode: defaults.mode || 'create',
-        submitButtonLabel: this.getSubmitButtonLabel(defaults.mode || 'create'),
+        submitButtonLabel: CloudFoundryServerGroupCommandBuilder.getSubmitButtonLabel(defaults.mode || 'create'),
       },
-      artifact: {
-        type: 'artifact',
-        reference: '',
-        account: '',
-      },
-      manifest: {
-        type: 'artifact',
-        reference: '',
-        account: '',
-      },
+      selectedProvider: 'cloudfoundry',
       startApplication: true,
     } as ICloudFoundryCreateServerGroupCommand);
   }
 
   public buildServerGroupCommandFromExisting(
-    app: ICloudFoundryApplication,
+    app: Application,
     serverGroup: ICloudFoundryServerGroup,
     mode = 'clone',
   ): IPromise<ICloudFoundryCreateServerGroupCommand> {
     return this.buildNewServerGroupCommand(app, { mode }).then(command => {
       command.credentials = serverGroup.account;
-      command.artifact = {
-        type: 'artifact',
-        reference: '',
-        account: '',
-      };
       command.manifest = {
-        type: 'direct',
-        memory: serverGroup.memory + 'M',
-        diskQuota: serverGroup.diskQuota + 'M',
-        buildpack: serverGroup.droplet.buildpacks.length > 0 ? serverGroup.droplet.buildpacks[0].name : '',
-        instances: serverGroup.instances.length,
-        routes: serverGroup.loadBalancers,
-        env: serverGroup.env,
-        services: (serverGroup.serviceInstances || []).map(serviceInstance => serviceInstance.name),
-        reference: '',
-        account: '',
-        pattern: '',
+        direct: {
+          memory: serverGroup.memory ? serverGroup.memory + 'M' : '1024M',
+          diskQuota: serverGroup.diskQuota ? serverGroup.diskQuota + 'M' : '1024M',
+          buildpacks:
+            serverGroup.droplet && serverGroup.droplet.buildpacks
+              ? serverGroup.droplet.buildpacks.map(item => item.name)
+              : [],
+          instances: serverGroup.instances ? serverGroup.instances.length : 1,
+          routes: serverGroup.loadBalancers,
+          environment: CloudFoundryServerGroupCommandBuilder.envVarsFromObject(serverGroup.env),
+          services: (serverGroup.serviceInstances || []).map(serviceInstance => serviceInstance.name),
+          healthCheckType: 'port',
+        },
       };
       command.region = serverGroup.region;
       command.stack = serverGroup.stack;
@@ -89,13 +89,18 @@ export class CloudFoundryServerGroupCommandBuilder {
   }
 
   public buildNewServerGroupCommandForPipeline(
-    _stage: IStage,
+    stage: IStage,
     pipeline: IPipeline,
   ): IPromise<ICloudFoundryCreateServerGroupCommand> {
     return this.buildNewServerGroupCommand({ name: pipeline.application } as ICloudFoundryApplication, {
       mode: 'editPipeline',
     }).then(command => {
-      command.viewState.requiresTemplateSelection = true;
+      command.viewState = {
+        ...command.viewState,
+        pipeline,
+        requiresTemplateSelection: true,
+        stage,
+      };
       return command;
     });
   }
@@ -103,28 +108,67 @@ export class CloudFoundryServerGroupCommandBuilder {
   public buildServerGroupCommandFromPipeline(
     application: ICloudFoundryApplication,
     originalCluster: ICloudFoundryDeployConfiguration,
+    stage: IStage,
+    pipeline: IPipeline,
   ) {
-    return this.buildNewServerGroupCommand(application, { mode: 'editPipeline' }).then(app => {
-      app.credentials = originalCluster.account;
-      app.artifact = originalCluster.artifact;
-      app.manifest = originalCluster.manifest;
-      app.region = originalCluster.region;
-      app.strategy = originalCluster.strategy;
-      app.startApplication = originalCluster.startApplication;
+    return this.buildNewServerGroupCommand(application, { mode: 'editPipeline' }).then(command => {
+      command.credentials = originalCluster.account;
+      command.applicationArtifact = originalCluster.applicationArtifact;
+      command.delayBeforeDisableSec = originalCluster.delayBeforeDisableSec;
+      command.manifest = originalCluster.manifest;
+      command.maxRemainingAsgs = originalCluster.maxRemainingAsgs;
+      command.region = originalCluster.region;
+      command.rollback = originalCluster.rollback;
+      command.strategy = originalCluster.strategy;
+      command.startApplication = originalCluster.startApplication;
       if (originalCluster.stack) {
-        app.stack = originalCluster.stack;
+        command.stack = originalCluster.stack;
       }
 
       if (originalCluster.freeFormDetails) {
-        app.freeFormDetails = originalCluster.freeFormDetails;
+        command.freeFormDetails = originalCluster.freeFormDetails;
       }
 
-      return app;
+      command.viewState = {
+        ...command.viewState,
+        pipeline,
+        stage,
+      };
+
+      return command;
     });
   }
 
-  public buildUpdateServerGroupCommand(_originalServerGroup: any) {
-    throw new Error('Implement me!');
+  public buildCloneServerGroupCommandFromPipeline(
+    stage: IStage,
+    pipeline: IPipeline,
+  ): IPromise<ICloudFoundryCreateServerGroupCommand> {
+    return this.buildNewServerGroupCommand({ name: pipeline.application } as ICloudFoundryApplication, {
+      mode: 'editClonePipeline',
+    }).then(command => {
+      command.credentials = stage.credentials;
+      command.capacity = stage.capacity;
+      command.account = stage.account;
+      command.destination = stage.destination;
+      command.delayBeforeDisableSec = stage.delayBeforeDisableSec;
+      command.freeFormDetails = stage.freeFormDetails || command.freeFormDetails;
+      command.maxRemainingAsgs = stage.maxRemainingAsgs;
+      command.region = stage.region;
+      command.startApplication = stage.startApplication === undefined || stage.startApplication;
+      command.stack = stage.stack || command.stack;
+      command.strategy = stage.strategy;
+      command.target = stage.target;
+      command.targetCluster = stage.targetCluster;
+      command.manifest = stage.manifest || command.manifest;
+
+      command.viewState = {
+        ...command.viewState,
+        pipeline,
+        stage,
+      };
+
+      return command;
+    });
   }
 }
 

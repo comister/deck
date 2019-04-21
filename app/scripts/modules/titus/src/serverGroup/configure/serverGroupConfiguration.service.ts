@@ -47,7 +47,8 @@ export interface ITitusServerGroupCommand extends IServerGroupCommand {
   imageId: string;
   organization: string;
   repository: string;
-  tag: string;
+  tag?: string;
+  digest?: string;
   image: string;
   inService: boolean;
   resources: {
@@ -78,13 +79,12 @@ export interface ITitusServerGroupCommand extends IServerGroupCommand {
 }
 
 export class TitusServerGroupConfigurationService {
+  public static $inject = ['cacheInitializer', 'loadBalancerReader', 'securityGroupReader'];
   constructor(
     private cacheInitializer: CacheInitializerService,
     private loadBalancerReader: LoadBalancerReader,
     private securityGroupReader: SecurityGroupReader,
-  ) {
-    'ngInject';
-  }
+  ) {}
 
   public configureZones(command: ITitusServerGroupCommand) {
     command.backingData.filtered.regions = command.backingData.credentialsKeyedByAccount[command.credentials].regions;
@@ -193,7 +193,7 @@ export class TitusServerGroupConfigurationService {
       const removed: string[] = xor(currentGroupNames, matchedGroupNames);
       command.securityGroups = matchedGroups.map(g => g.id);
       if (removed.length) {
-        command.dirty.securityGroups = removed;
+        command.viewState.dirty.securityGroups = removed;
       }
     }
     command.backingData.filtered.securityGroups = newRegionalSecurityGroups.sort((a, b) => {
@@ -271,11 +271,9 @@ export class TitusServerGroupConfigurationService {
   }
 
   public refreshLoadBalancers(command: ITitusServerGroupCommand) {
-    return this.cacheInitializer.refreshCache('loadBalancers').then(() => {
-      return this.loadBalancerReader.listLoadBalancers('aws').then(loadBalancers => {
-        command.backingData.loadBalancers = loadBalancers;
-        this.configureLoadBalancerOptions(command);
-      });
+    return this.loadBalancerReader.listLoadBalancers('aws').then(loadBalancers => {
+      command.backingData.loadBalancers = loadBalancers;
+      this.configureLoadBalancerOptions(command);
     });
   }
 }

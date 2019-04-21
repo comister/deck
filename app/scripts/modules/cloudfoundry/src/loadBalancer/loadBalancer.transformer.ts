@@ -44,9 +44,8 @@ export class CloudFoundryLoadBalancerUpsertDescription
 }
 
 export class CloudFoundryLoadBalancerTransformer {
-  constructor(private $q: ng.IQService) {
-    'ngInject';
-  }
+  public static $inject = ['$q'];
+  constructor(private $q: ng.IQService) {}
 
   public normalizeLoadBalancer(loadBalancer: ILoadBalancer): ng.IPromise<ILoadBalancer> {
     loadBalancer.provider = loadBalancer.type;
@@ -55,6 +54,7 @@ export class CloudFoundryLoadBalancerTransformer {
     loadBalancer.serverGroups.forEach(serverGroup => {
       serverGroup.account = loadBalancer.account;
       serverGroup.region = loadBalancer.region;
+      serverGroup.cloudProvider = loadBalancer.provider;
 
       if (serverGroup.detachedInstances) {
         serverGroup.detachedInstances = (serverGroup.detachedInstances as any).map((id: string) => ({ id }));

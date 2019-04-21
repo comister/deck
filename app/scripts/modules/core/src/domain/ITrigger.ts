@@ -7,6 +7,13 @@ export interface ITrigger {
   type: string;
   expectedArtifactIds?: string[]; // uuid references to ExpectedArtifacts defined in the Pipeline.
   runAsUser?: string;
+  excludedArtifactTypePatterns?: RegExp[];
+}
+
+export interface IArtifactoryTrigger extends ITrigger {
+  artifactorySearchName: string;
+  artifactoryRepository: string;
+  type: 'artifactory';
 }
 
 export interface IGitTrigger extends ITrigger {
@@ -24,15 +31,13 @@ export interface IBuildTrigger extends ITrigger {
   job: string;
   project: string;
   master: string;
-  type: 'jenkins' | 'travis' | 'wercker';
+  type: 'jenkins' | 'travis' | 'wercker' | 'concourse';
 }
 
-export interface IDockerTrigger extends ITrigger {
-  account?: string;
-  tag: string;
-  registry?: string;
-  repository: string;
-  organization?: string;
+export interface IConcourseTrigger extends IBuildTrigger {
+  // Concourse pipeline is represented by project
+  team: string;
+  jobName: string; // job will be the concatenation of team/pipeline/jobName
 }
 
 export interface IPipelineTrigger extends ITrigger {

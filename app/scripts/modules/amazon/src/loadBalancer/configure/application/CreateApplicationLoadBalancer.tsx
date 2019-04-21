@@ -1,17 +1,18 @@
 import * as React from 'react';
 import { cloneDeep, get } from 'lodash';
-import { FormikErrors, FormikValues } from 'formik';
 import { IPromise } from 'angular';
 
 import {
   AccountService,
+  FirewallLabels,
+  ILoadBalancerModalProps,
   LoadBalancerWriter,
   ReactInjector,
+  ReactModal,
   TaskMonitor,
   WizardModal,
+  WizardPage,
   noop,
-  ReactModal,
-  ILoadBalancerModalProps,
 } from '@spinnaker/core';
 
 import { AWSProviderSettings } from 'amazon/aws.settings';
@@ -19,6 +20,7 @@ import { IAmazonApplicationLoadBalancer, IAmazonApplicationLoadBalancerUpsertCom
 import { AwsReactInjector } from 'amazon/reactShims';
 
 import { ALBListeners } from './ALBListeners';
+import { ALBAdvancedSettings } from './ALBAdvancedSettings';
 import { TargetGroups } from './TargetGroups';
 import { SecurityGroups } from '../common/SecurityGroups';
 import { LoadBalancerLocation } from '../common/LoadBalancerLocation';
@@ -57,7 +59,9 @@ export class CreateApplicationLoadBalancer extends React.Component<
   constructor(props: ICreateApplicationLoadBalancerProps) {
     super(props);
 
-    const loadBalancerCommand = props.loadBalancer
+    const loadBalancerCommand = props.command
+      ? (props.command as IAmazonApplicationLoadBalancerUpsertCommand) // ejecting from a wizard
+      : props.loadBalancer
       ? AwsReactInjector.awsLoadBalancerTransformer.convertApplicationLoadBalancerForEditing(props.loadBalancer)
       : AwsReactInjector.awsLoadBalancerTransformer.constructNewApplicationLoadBalancerTemplate(props.app);
 
@@ -240,25 +244,9 @@ export class CreateApplicationLoadBalancer extends React.Component<
     }
   };
 
-  private validate = (values: FormikValues): FormikErrors<IAmazonApplicationLoadBalancerUpsertCommand> => {
-    this.setState({ includeSecurityGroups: !!values.vpcId });
-    const errors = {} as FormikErrors<IAmazonApplicationLoadBalancerUpsertCommand>;
-    return errors;
-  };
-
   public render() {
     const { app, dismissModal, forPipelineConfig, loadBalancer } = this.props;
-    const { includeSecurityGroups, isNew, loadBalancerCommand, taskMonitor } = this.state;
-
-    const hideSections = new Set<string>();
-
-    if (!isNew && !forPipelineConfig) {
-      hideSections.add(LoadBalancerLocation.label);
-    }
-
-    if (!includeSecurityGroups) {
-      hideSections.add(SecurityGroups.label);
-    }
+    const { isNew, loadBalancerCommand, taskMonitor } = this.state;
 
     let heading = forPipelineConfig ? 'Configure Application Load Balancer' : 'Create New Application Load Balancer';
     if (!isNew) {
@@ -273,19 +261,67 @@ export class CreateApplicationLoadBalancer extends React.Component<
         dismissModal={dismissModal}
         closeModal={this.submit}
         submitButtonLabel={forPipelineConfig ? (isNew ? 'Add' : 'Done') : isNew ? 'Create' : 'Update'}
-        validate={this.validate}
-        hideSections={hideSections}
-      >
-        <LoadBalancerLocation
-          app={app}
-          isNew={isNew}
-          forPipelineConfig={forPipelineConfig}
-          loadBalancer={loadBalancer}
-        />
-        <SecurityGroups done={true} isNew={isNew} />
-        <TargetGroups app={app} isNew={isNew} loadBalancer={loadBalancer} done={true} />
-        <ALBListeners app={app} done={true} />
-      </WizardModal>
+        render={({ formik, nextIdx, wizard }) => {
+          const showLocationSection = isNew || forPipelineConfig;
+          const showSecurityGroups = !!formik.values.vpcId;
+
+          return (
+            <>
+              {showLocationSection && (
+                <WizardPage
+                  label="Location"
+                  wizard={wizard}
+                  order={nextIdx()}
+                  render={({ innerRef }) => (
+                    <LoadBalancerLocation
+                      app={app}
+                      forPipelineConfig={forPipelineConfig}
+                      formik={formik}
+                      isNew={isNew}
+                      loadBalancer={loadBalancer}
+                      ref={innerRef}
+                    />
+                  )}
+                />
+              )}
+
+              {showSecurityGroups && (
+                <WizardPage
+                  label={FirewallLabels.get('Firewalls')}
+                  wizard={wizard}
+                  order={nextIdx()}
+                  render={({ innerRef, onLoadingChanged }) => (
+                    <SecurityGroups formik={formik} isNew={isNew} onLoadingChanged={onLoadingChanged} ref={innerRef} />
+                  )}
+                />
+              )}
+
+              <WizardPage
+                label="Target Groups"
+                wizard={wizard}
+                order={nextIdx()}
+                render={({ innerRef }) => (
+                  <TargetGroups ref={innerRef} app={app} formik={formik} isNew={isNew} loadBalancer={loadBalancer} />
+                )}
+              />
+
+              <WizardPage
+                label="Listeners"
+                wizard={wizard}
+                order={nextIdx()}
+                render={({ innerRef }) => <ALBListeners ref={innerRef} app={app} formik={formik} />}
+              />
+
+              <WizardPage
+                label="Advanced Settings"
+                wizard={wizard}
+                order={nextIdx()}
+                render={({ innerRef }) => <ALBAdvancedSettings ref={innerRef} />}
+              />
+            </>
+          );
+        }}
+      />
     );
   }
 }

@@ -1,18 +1,18 @@
 import * as React from 'react';
-import { FormikErrors } from 'formik';
-
-import { IWizardPageProps, wizardPage } from '@spinnaker/core';
+import { FormikProps } from 'formik';
+import { IWizardPageComponent } from '@spinnaker/core';
 
 import { IAmazonServerGroupCommand } from '../../serverGroupConfiguration.service';
 import { AvailabilityZoneSelector } from '../../../AvailabilityZoneSelector';
 
-export type IServerGroupZonesProps = IWizardPageProps<IAmazonServerGroupCommand>;
+export interface IServerGroupZonesProps {
+  formik: FormikProps<IAmazonServerGroupCommand>;
+}
 
-class ServerGroupZonesImpl extends React.Component<IServerGroupZonesProps> {
-  public static LABEL = 'Availability Zones';
-
+export class ServerGroupZones extends React.Component<IServerGroupZonesProps>
+  implements IWizardPageComponent<IAmazonServerGroupCommand> {
   public validate(values: IAmazonServerGroupCommand) {
-    const errors: FormikErrors<IAmazonServerGroupCommand> = {};
+    const errors = {} as any;
 
     if (!values.availabilityZones || values.availabilityZones.length === 0) {
       errors.availabilityZones = 'You must select at least one availability zone.';
@@ -27,8 +27,9 @@ class ServerGroupZonesImpl extends React.Component<IServerGroupZonesProps> {
   };
 
   private rebalanceToggled = () => {
-    const { values } = this.props.formik;
+    const { values, setFieldValue } = this.props.formik;
     values.toggleSuspendedProcess(values, 'AZRebalance');
+    setFieldValue('suspendedProcesses', values.suspendedProcesses);
     this.setState({});
   };
 
@@ -63,5 +64,3 @@ class ServerGroupZonesImpl extends React.Component<IServerGroupZonesProps> {
     );
   }
 }
-
-export const ServerGroupZones = wizardPage(ServerGroupZonesImpl);

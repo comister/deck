@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Field, FormikErrors } from 'formik';
+import { Field } from 'formik';
 import Select, { Option } from 'react-select';
 
 import { HelpField, MapEditor, PlatformHealthOverride } from '@spinnaker/core';
@@ -13,7 +13,7 @@ export class ServerGroupAdvancedSettingsCommon extends React.Component<IServerGr
   private duplicateKeys = false;
 
   public validate = (values: IAmazonServerGroupCommand) => {
-    const errors: FormikErrors<IAmazonServerGroupCommand> = {};
+    const errors = {} as any;
 
     if (!values.keyPair) {
       errors.keyPair = 'Key Name is required';
@@ -32,8 +32,9 @@ export class ServerGroupAdvancedSettingsCommon extends React.Component<IServerGr
   };
 
   private toggleSuspendedProcess = (process: string) => {
-    const { values } = this.props.formik;
+    const { values, setFieldValue } = this.props.formik;
     values.toggleSuspendedProcess(values, process);
+    setFieldValue('suspendedProcesses', values.suspendedProcesses);
     this.setState({});
   };
 
@@ -306,7 +307,7 @@ export class ServerGroupAdvancedSettingsCommon extends React.Component<IServerGr
             </div>
             <div className="col-md-6">
               <PlatformHealthOverride
-                command={values}
+                interestingHealthProviderNames={values.interestingHealthProviderNames}
                 platformHealthType="Amazon"
                 onChange={this.platformHealthOverrideChanged}
               />

@@ -1,23 +1,19 @@
 import * as React from 'react';
 
-import { FormikErrors } from 'formik';
+import { Observable, Subject } from 'rxjs';
 
-import {
-  AccountService,
-  Application,
-  IAccount,
-  IWizardPageProps,
-  wizardPage,
-  NgReact,
-  RegionSelectField,
-  IRegion,
-} from '@spinnaker/core';
+import Select, { Option } from 'react-select';
+
+import { FormikErrors, FormikProps } from 'formik';
+
+import { AccountService, Application, IAccount, IRegion, IWizardPageComponent } from '@spinnaker/core';
 
 import { ICloudFoundryAccount, ICloudFoundryDomain, ICloudFoundryLoadBalancerUpsertCommand } from 'cloudfoundry/domain';
 import { RouteDomainSelectField } from 'cloudfoundry/routeDomains';
 
-export interface ILoadBalancerDetailsProps extends IWizardPageProps<ICloudFoundryLoadBalancerUpsertCommand> {
+export interface ILoadBalancerDetailsProps {
   app: Application;
+  formik: FormikProps<ICloudFoundryLoadBalancerUpsertCommand>;
   isNew?: boolean;
 }
 
@@ -29,9 +25,9 @@ export interface ILoadBalancerDetailsState {
   regions: IRegion[];
 }
 
-class LoadBalancerDetailsImpl extends React.Component<ILoadBalancerDetailsProps, ILoadBalancerDetailsState> {
-  public static LABEL = 'Details';
-
+export class LoadBalancerDetails extends React.Component<ILoadBalancerDetailsProps, ILoadBalancerDetailsState>
+  implements IWizardPageComponent<ICloudFoundryLoadBalancerUpsertCommand> {
+  private destroy$ = new Subject();
   public state: ILoadBalancerDetailsState = {
     accounts: undefined,
     availabilityZones: [],
@@ -67,37 +63,52 @@ class LoadBalancerDetailsImpl extends React.Component<ILoadBalancerDetailsProps,
     this.loadAccounts();
   }
 
-  private loadAccounts(): void {
-    AccountService.listAccounts('cloudfoundry').then(accounts => {
-      this.setState({ accounts });
-      this.accountUpdated(this.props.formik.values.credentials);
-    });
+  public componentWillUnmount(): void {
+    this.destroy$.next();
   }
 
-  private accountUpdated = (account?: string): void => {
+  private loadAccounts(): void {
+    Observable.fromPromise(AccountService.listAccounts('cloudfoundry'))
+      .takeUntil(this.destroy$)
+      .subscribe(accounts => {
+        this.setState({ accounts });
+        this.loadDomainsAndRegions();
+      });
+  }
+
+  private accountUpdated = (option: Option<string>): void => {
+    const account = option.value;
     this.props.formik.setFieldValue('credentials', account);
-    if (account) {
-      AccountService.getAccountDetails(account).then((accountDetails: ICloudFoundryAccount) => {
-        this.setState({ domains: accountDetails.domains });
-      });
-      AccountService.getRegionsForAccount(account).then(regions => {
-        this.setState({ regions });
-      });
-    }
+    this.loadDomainsAndRegions();
   };
 
-  private regionUpdated = (region: string): void => {
+  private loadDomainsAndRegions(): void {
+    const account = this.props.formik.values.credentials;
+    if (account) {
+      Observable.fromPromise(AccountService.getAccountDetails(account))
+        .takeUntil(this.destroy$)
+        .subscribe((accountDetails: ICloudFoundryAccount) => this.setState({ domains: accountDetails.domains }));
+      Observable.fromPromise(AccountService.getRegionsForAccount(account))
+        .takeUntil(this.destroy$)
+        .subscribe(regions => this.setState({ regions }));
+    }
+  }
+
+  private regionUpdated = (option: Option<string>): void => {
+    const region = option.value;
     this.props.formik.setFieldValue('region', region);
     if (region) {
       const { credentials } = this.props.formik.values;
-      AccountService.getAccountDetails(credentials).then((accountDetails: ICloudFoundryAccount) => {
-        const { domains } = accountDetails;
-        this.setState({
-          domains: domains.filter(
-            domain => domain.organization === undefined || region.match('^' + domain.organization.name),
-          ),
+      Observable.fromPromise(AccountService.getAccountDetails(credentials))
+        .takeUntil(this.destroy$)
+        .subscribe((accountDetails: ICloudFoundryAccount) => {
+          const { domains } = accountDetails;
+          this.setState({
+            domains: domains.filter(
+              domain => domain.organization === undefined || region.match('^' + domain.organization.name),
+            ),
+          });
         });
-      });
     }
   };
 
@@ -126,30 +137,43 @@ class LoadBalancerDetailsImpl extends React.Component<ILoadBalancerDetailsProps,
   public render() {
     const { values } = this.props.formik;
     const { accounts, domains, regions } = this.state;
-    const { AccountSelectField } = NgReact;
     return (
       <div className="container-fluid form-horizontal">
         <div className="modal-body">
           <div className="form-group">
             <div className="col-md-3 sm-label-right">Account</div>
             <div className="col-md-7">
-              <AccountSelectField
-                component={values}
-                field="credentials"
-                accounts={accounts}
-                provider="cloudfoundry"
+              <Select
+                options={
+                  accounts &&
+                  accounts.map((acc: IAccount) => ({
+                    label: acc.name,
+                    value: acc.name,
+                  }))
+                }
+                clearable={false}
+                value={values.credentials}
                 onChange={this.accountUpdated}
               />
             </div>
           </div>
-          <RegionSelectField
-            labelColumns={3}
-            component={values}
-            field="region"
-            account={values.credentials}
-            onChange={this.regionUpdated}
-            regions={regions}
-          />
+          <div className="form-group">
+            <div className="col-md-3 sm-label-right">Region</div>
+            <div className="col-md-7">
+              <Select
+                options={
+                  regions &&
+                  regions.map((region: IRegion) => ({
+                    label: region.name,
+                    value: region.name,
+                  }))
+                }
+                clearable={false}
+                value={values.region}
+                onChange={this.regionUpdated}
+              />
+            </div>
+          </div>
           <RouteDomainSelectField
             labelColumns={3}
             component={values}
@@ -202,5 +226,3 @@ class LoadBalancerDetailsImpl extends React.Component<ILoadBalancerDetailsProps,
     );
   }
 }
-
-export const LoadBalancerDetails = wizardPage(LoadBalancerDetailsImpl);

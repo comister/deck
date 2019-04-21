@@ -1,11 +1,24 @@
 import { IController, IScope } from 'angular';
 import { get, defaults } from 'lodash';
-import { ExpectedArtifactSelectorViewController, NgManifestArtifactDelegate } from '@spinnaker/core';
+import { dump } from 'js-yaml';
+import { ExpectedArtifactSelectorViewController, NgGenericArtifactDelegate } from '@spinnaker/core';
 import { IPatchOptions, MergeStrategy } from './patchOptionsForm.component';
 import {
   IKubernetesManifestCommandMetadata,
   KubernetesManifestCommandBuilder,
 } from 'kubernetes/v2/manifest/manifestCommandBuilder.service';
+import { JSON_EDITOR_TAB_SIZE } from 'kubernetes/v2/manifest/editor/json/JsonEditor';
+
+export enum EditorMode {
+  json = 'json',
+  yaml = 'yaml',
+}
+
+export const mergeStrategyToEditorMode: { [m in MergeStrategy]: EditorMode } = {
+  [MergeStrategy.strategic]: EditorMode.yaml,
+  [MergeStrategy.json]: EditorMode.json,
+  [MergeStrategy.merge]: EditorMode.json,
+};
 
 export class KubernetesV2PatchManifestConfigCtrl implements IController {
   public state = {
@@ -16,13 +29,13 @@ export class KubernetesV2PatchManifestConfigCtrl implements IController {
   public textSource = 'text';
   public artifactSource = 'artifact';
   public sources = [this.textSource, this.artifactSource];
+  public rawPatchBody: string;
 
-  private manifestArtifactDelegate: NgManifestArtifactDelegate;
+  private manifestArtifactDelegate: NgGenericArtifactDelegate;
   private manifestArtifactController: ExpectedArtifactSelectorViewController;
 
+  public static $inject = ['$scope'];
   constructor(private $scope: IScope) {
-    'ngInject';
-
     const defaultOptions: IPatchOptions = {
       mergeStrategy: MergeStrategy.strategic,
       record: true,
@@ -32,7 +45,13 @@ export class KubernetesV2PatchManifestConfigCtrl implements IController {
       this.$scope.stage.options = defaultOptions;
     }
 
-    this.manifestArtifactDelegate = new NgManifestArtifactDelegate($scope);
+    if (!this.$scope.stage.app) {
+      this.$scope.stage.app = this.$scope.application.name;
+    }
+
+    this.setRawPatchBody(this.getMergeStrategy());
+
+    this.manifestArtifactDelegate = new NgGenericArtifactDelegate($scope, 'manifest');
     this.manifestArtifactController = new ExpectedArtifactSelectorViewController(this.manifestArtifactDelegate);
 
     KubernetesManifestCommandBuilder.buildNewManifestCommand(
@@ -58,8 +77,14 @@ export class KubernetesV2PatchManifestConfigCtrl implements IController {
     });
   }
 
-  public handleYamlChange = (patchBody: any): void => {
-    this.$scope.stage.patchBody = patchBody;
+  public handlePatchBodyChange = (rawPatchBody: string, patchBody: any): void => {
+    this.rawPatchBody = rawPatchBody;
+    if (this.getEditorMode() === EditorMode.yaml) {
+      // YamlEditor patchBody is list of YAML documents, take first as patch
+      this.$scope.stage.patchBody = Array.isArray(patchBody) && patchBody.length > 0 ? patchBody[0] : null;
+    } else {
+      this.$scope.stage.patchBody = patchBody;
+    }
     // Called from a React component.
     this.$scope.$applyAsync();
   };
@@ -73,6 +98,33 @@ export class KubernetesV2PatchManifestConfigCtrl implements IController {
   }
 
   public handleManifestSelectorChange = (): void => {
+    this.$scope.$applyAsync();
+  };
+
+  private getMergeStrategy = (): MergeStrategy => {
+    return this.$scope.stage.options.mergeStrategy;
+  };
+
+  public getEditorMode = (): EditorMode => {
+    return mergeStrategyToEditorMode[this.getMergeStrategy()];
+  };
+
+  private setRawPatchBody = (mergeStrategy: MergeStrategy): void => {
+    const editorMode = mergeStrategyToEditorMode[mergeStrategy];
+    const patchBody = this.$scope.stage.patchBody;
+    try {
+      if (editorMode === EditorMode.yaml) {
+        this.rawPatchBody = patchBody ? dump(patchBody) : null;
+      } else {
+        this.rawPatchBody = patchBody ? JSON.stringify(patchBody, null, JSON_EDITOR_TAB_SIZE) : null;
+      }
+    } catch (e) {
+      this.rawPatchBody = null;
+    }
+  };
+
+  public handleMergeStrategyChange = (): void => {
+    this.handlePatchBodyChange('', null);
     this.$scope.$applyAsync();
   };
 }

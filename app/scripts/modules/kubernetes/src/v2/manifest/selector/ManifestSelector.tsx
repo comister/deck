@@ -1,17 +1,40 @@
 import * as React from 'react';
-import { Creatable, Option } from 'react-select';
+import Select, { Creatable, Option } from 'react-select';
 import { IPromise } from 'angular';
 import { Observable, Subject } from 'rxjs';
 import { $q } from 'ngimport';
+import { get, isEmpty } from 'lodash';
 
-import { IAccountDetails, SETTINGS, StageConfigField, NgReact, AccountService } from '@spinnaker/core';
+import {
+  AppListExtractor,
+  Application,
+  NgReact,
+  StageConstants,
+  IAccountDetails,
+  SETTINGS,
+  StageConfigField,
+  AccountSelectInput,
+  AccountService,
+  noop,
+  ScopeClusterSelector,
+  IServerGroup,
+} from '@spinnaker/core';
 
-import { IManifestSelector } from 'kubernetes/v2/manifest/selector/IManifestSelector';
+import {
+  IManifestSelector,
+  SelectorMode,
+  SelectorModeDataMap,
+} from 'kubernetes/v2/manifest/selector/IManifestSelector';
 import { ManifestKindSearchService } from 'kubernetes/v2/manifest/ManifestKindSearch';
+import LabelEditor from 'kubernetes/v2/manifest/selector/labelEditor/LabelEditor';
+import { IManifestLabelSelector } from 'kubernetes/v2/manifest/selector/IManifestLabelSelector';
 
 export interface IManifestSelectorProps {
   selector: IManifestSelector;
-  onChange(): void;
+  application?: Application;
+  includeSpinnakerKinds?: string[];
+  modes?: SelectorMode[];
+  onChange(selector: IManifestSelector): void;
 }
 
 export interface IManifestSelectorState {
@@ -23,34 +46,122 @@ export interface IManifestSelectorState {
   loading: boolean;
 }
 
+interface ISelectorHandler {
+  handles(mode: SelectorMode): boolean;
+  handleModeChange(): void;
+  handleKindChange(kind: string): void;
+  getKind(): string;
+}
+
+const parseSpinnakerName = (spinnakerName: string): { name: string; kind: string } => {
+  const [kind, name] = (spinnakerName || '').split(' ');
+  return { kind, name };
+};
+
+class StaticManifestSelectorHandler implements ISelectorHandler {
+  constructor(private component: ManifestSelector) {}
+
+  public handles = (mode: SelectorMode): boolean => mode === SelectorMode.Static;
+
+  public handleModeChange = (): void => {
+    const { selector } = this.component.state;
+    this.handleKindChange(selector.kind);
+    Object.assign(selector, SelectorModeDataMap.static.selectorDefaults);
+    this.component.setStateAndUpdateStage({ selector });
+  };
+
+  public handleKindChange = (kind: string): void => {
+    const { selector } = this.component.state;
+    const { name } = parseSpinnakerName(selector.manifestName);
+    selector.manifestName = kind ? (name ? `${kind} ${name}` : kind) : name;
+  };
+
+  public getKind = (): string => parseSpinnakerName(this.component.state.selector.manifestName).kind;
+}
+
+class DynamicManifestSelectorHandler implements ISelectorHandler {
+  constructor(private component: ManifestSelector) {}
+
+  public handles = (mode: SelectorMode): boolean => mode === SelectorMode.Dynamic;
+
+  public handleModeChange = (): void => {
+    const { selector } = this.component.state;
+    const { kind } = parseSpinnakerName(selector.manifestName);
+    selector.kind = kind || null;
+    Object.assign(selector, SelectorModeDataMap.dynamic.selectorDefaults);
+    this.component.setStateAndUpdateStage({ selector });
+  };
+
+  public handleKindChange = (kind: string): void => {
+    this.component.state.selector.kind = kind;
+  };
+
+  public getKind = (): string => this.component.state.selector.kind;
+}
+
+class LabelManifestSelectorHandler implements ISelectorHandler {
+  constructor(private component: ManifestSelector) {}
+
+  public handles = (mode: SelectorMode): boolean => mode === SelectorMode.Label;
+
+  public handleModeChange = (): void => {
+    const { selector } = this.component.state;
+    Object.assign(selector, SelectorModeDataMap.label.selectorDefaults);
+    this.component.setStateAndUpdateStage({ selector });
+  };
+
+  public handleKindChange = (): void => {};
+
+  public getKind = (): string => null;
+}
+
 export class ManifestSelector extends React.Component<IManifestSelectorProps, IManifestSelectorState> {
   private search$ = new Subject<{ kind: string; namespace: string; account: string }>();
   private destroy$ = new Subject<void>();
+  private handlers: ISelectorHandler[];
 
   constructor(props: IManifestSelectorProps) {
     super(props);
+
+    if (!this.props.selector.mode) {
+      this.props.selector.mode = SelectorMode.Static;
+      this.props.onChange && this.props.onChange(this.props.selector);
+    }
+
     this.state = {
-      selector: this.props.selector,
+      selector: props.selector,
       accounts: [],
       namespaces: [],
       kinds: [],
       resources: [],
       loading: false,
     };
+    this.handlers = [
+      new StaticManifestSelectorHandler(this),
+      new DynamicManifestSelectorHandler(this),
+      new LabelManifestSelectorHandler(this),
+    ];
   }
+
+  public setStateAndUpdateStage = (state: Partial<IManifestSelectorState>, cb?: () => void): void => {
+    if (state.selector && this.props.onChange) {
+      this.props.onChange(state.selector);
+    }
+    this.setState(state as IManifestSelectorState, cb || noop);
+  };
 
   public componentDidMount = (): void => {
     this.loadAccounts();
 
     this.search$
-      .do(() => this.setState({ loading: true }))
+      .do(() => this.setStateAndUpdateStage({ loading: true }))
       .switchMap(({ kind, namespace, account }) => Observable.fromPromise(this.search(kind, namespace, account)))
       .takeUntil(this.destroy$)
       .subscribe(resources => {
-        if (!(resources || []).some(resource => resource === this.state.selector.manifestName)) {
+        if (this.state.selector.manifestName == null && this.getSelectedMode() === SelectorMode.Static) {
           this.handleNameChange('');
         }
-        this.setState({ loading: false, resources: resources });
+        this.setStateAndUpdateStage({ loading: false, resources: resources, selector: this.state.selector });
       });
   };
 
@@ -59,9 +170,9 @@ export class ManifestSelector extends React.Component<IManifestSelectorProps, IM
   public loadAccounts = (): IPromise<void> => {
     return AccountService.getAllAccountDetailsForProvider('kubernetes', 'v2').then(accounts => {
       const selector = this.state.selector;
-      const kind = this.parseSpinnakerName(selector.manifestName).kind;
+      const kind = parseSpinnakerName(selector.manifestName).kind;
 
-      this.setState({ accounts });
+      this.setStateAndUpdateStage({ accounts });
 
       if (!selector.account && accounts.length > 0) {
         selector.account = accounts.some(e => e.name === SETTINGS.providers.kubernetes.defaults.account)
@@ -83,59 +194,58 @@ export class ManifestSelector extends React.Component<IManifestSelectorProps, IM
       return;
     }
     const namespaces = (details.namespaces || []).sort();
-    const kinds = Object.keys(details.spinnakerKindMap || {}).sort();
-    if (namespaces.every(ns => ns !== this.state.selector.location)) {
+    const kinds = Object.entries(details.spinnakerKindMap || {})
+      .filter(([, spinnakerKind]) =>
+        this.props.includeSpinnakerKinds && this.props.includeSpinnakerKinds.length
+          ? this.props.includeSpinnakerKinds.includes(spinnakerKind)
+          : true,
+      )
+      .map(([kind]) => kind)
+      .sort();
+
+    if (
+      !this.isExpression(this.state.selector.location) &&
+      namespaces.every(ns => ns !== this.state.selector.location)
+    ) {
       this.state.selector.location = null;
     }
+    this.state.selector.account = selectedAccount;
 
-    this.setState({
+    this.search$.next({
+      kind: parseSpinnakerName(this.state.selector.manifestName).kind || this.state.selector.kind,
+      namespace: this.state.selector.location,
+      account: this.state.selector.account,
+    });
+    this.setStateAndUpdateStage({
       namespaces,
       kinds,
       selector: this.state.selector,
     });
-    this.props.onChange();
   };
 
   private handleNamespaceChange = (selectedNamespace: Option): void => {
     this.state.selector.location =
       selectedNamespace && selectedNamespace.value ? (selectedNamespace.value as string) : null;
     this.search$.next({
-      kind: this.parseSpinnakerName(this.state.selector.manifestName).kind,
+      kind: parseSpinnakerName(this.state.selector.manifestName).kind,
       namespace: this.state.selector.location,
       account: this.state.selector.account,
     });
-    this.setState({ selector: this.state.selector });
-    this.props.onChange();
+    this.setStateAndUpdateStage({ selector: this.state.selector });
   };
 
-  private handleKindChange = (selectedKind: Option): void => {
-    const kind = selectedKind.value as string;
-    const { name } = this.parseSpinnakerName(this.state.selector.manifestName);
-    if (!kind) {
-      this.state.selector.manifestName = name;
-      this.setState({ resources: [], selector: this.state.selector });
-      return;
-    }
-
-    this.state.selector.manifestName = name ? `${kind} ${name}` : kind;
+  public handleKindChange = (kind: string): void => {
+    this.modeDelegate().handleKindChange(kind);
     this.search$.next({ kind: kind, namespace: this.state.selector.location, account: this.state.selector.account });
-    this.setState({ selector: this.state.selector });
-    this.props.onChange();
   };
 
   private handleNameChange = (selectedName: string): void => {
-    const { kind } = this.parseSpinnakerName(this.state.selector.manifestName);
+    const { kind } = parseSpinnakerName(this.state.selector.manifestName);
     this.state.selector.manifestName = kind ? `${kind} ${selectedName}` : ` ${selectedName}`;
-    this.setState({ selector: this.state.selector });
-    this.props.onChange();
+    this.setStateAndUpdateStage({ selector: this.state.selector });
   };
 
-  private parseSpinnakerName = (spinnakerName = ''): { name: string; kind: string } => {
-    const [kind, name] = spinnakerName.split(' ');
-    return { kind, name };
-  };
-
-  private isExpression = (value = ''): boolean => value.includes('${');
+  private isExpression = (value: string): boolean => (typeof value === 'string' ? value.includes('${') : false);
 
   private search = (kind: string, namespace: string, account: string): IPromise<string[]> => {
     if (this.isExpression(account)) {
@@ -146,20 +256,89 @@ export class ManifestSelector extends React.Component<IManifestSelectorProps, IM
     );
   };
 
+  private handleModeSelect = (mode: SelectorMode) => {
+    this.state.selector.mode = mode;
+    this.setStateAndUpdateStage({ selector: this.state.selector }, () => {
+      this.modeDelegate().handleModeChange();
+    });
+  };
+
+  private handleClusterChange = ({ clusterName }: { clusterName: string }) => {
+    this.state.selector.cluster = clusterName;
+    this.setStateAndUpdateStage({ selector: this.state.selector });
+  };
+
+  private handleCriteriaChange = (criteria: string) => {
+    this.state.selector.criteria = criteria;
+    this.setStateAndUpdateStage({ selector: this.state.selector });
+  };
+
+  public handleKindsChange = (kinds: string[]): void => {
+    this.state.selector.kinds = kinds;
+    this.setStateAndUpdateStage({ selector: this.state.selector });
+  };
+
+  public handleLabelSelectorsChange = (labelSelectors: IManifestLabelSelector[]): void => {
+    this.state.selector.labelSelectors.selectors = labelSelectors;
+    this.setStateAndUpdateStage({ selector: this.state.selector });
+  };
+
+  private modeDelegate = (): ISelectorHandler => this.handlers.find(handler => handler.handles(this.getSelectedMode()));
+
+  private promptTextCreator = (text: string) => `Use custom expression: ${text}`;
+
+  private getSelectedMode = (): SelectorMode => this.state.selector.mode || SelectorMode.Static;
+
+  private getFilteredClusters = (): string[] => {
+    const { application, includeSpinnakerKinds } = this.props;
+    const { selector } = this.state;
+    const applications = application ? [application] : [];
+    // If the only whitelisted Spinnaker kind is `serverGroups`, exclude server groups with `serverGroupManagers`.
+    // This is because traffic management stages only allow ReplicaSets.
+    const includeServerGroupsWithManagers: boolean =
+      isEmpty(includeSpinnakerKinds) || includeSpinnakerKinds.length > 1 || includeSpinnakerKinds[0] !== 'serverGroups';
+    const filter = (serverGroup: IServerGroup): boolean => {
+      const accountAndNamespaceFilter: boolean = AppListExtractor.clusterFilterForCredentialsAndRegion(
+        selector.account,
+        selector.location,
+      )(serverGroup);
+      const hasServerGroupManagers: boolean = get(serverGroup, 'serverGroupManagers.length', 0) > 0;
+      const serverGroupManagerFilter: boolean = includeServerGroupsWithManagers || !hasServerGroupManagers;
+      const nameToParseKind: string = hasServerGroupManagers ? serverGroup.cluster : serverGroup.name;
+      const kindFilter: boolean = parseSpinnakerName(nameToParseKind).kind === this.modeDelegate().getKind();
+      return accountAndNamespaceFilter && serverGroupManagerFilter && kindFilter;
+    };
+    return AppListExtractor.getClusters(applications, filter);
+  };
+
   public render() {
-    const { AccountSelectField } = NgReact;
+    const { TargetSelect } = NgReact;
+    const selectedMode = this.getSelectedMode();
+    const modes = this.props.modes || [selectedMode];
     const { selector, accounts, kinds, namespaces, resources, loading } = this.state;
-    const { kind, name } = this.parseSpinnakerName(selector.manifestName);
-    const resourceNames = resources.map(resource => this.parseSpinnakerName(resource).name);
+    const kind = this.modeDelegate().getKind();
+    const name = parseSpinnakerName(selector.manifestName).name;
+    const resourceNames = resources.map(resource => parseSpinnakerName(resource).name);
+    const selectedKinds = selector.kinds || [];
+    const KindField = (
+      <StageConfigField label="Kind">
+        <Creatable
+          clearable={false}
+          value={{ value: kind, label: kind }}
+          options={kinds.map(k => ({ value: k, label: k }))}
+          onChange={(option: Option<string>) => this.handleKindChange(option && option.value)}
+          promptTextCreator={this.promptTextCreator}
+        />
+      </StageConfigField>
+    );
 
     return (
       <>
         <StageConfigField label="Account">
-          <AccountSelectField
-            component={selector}
-            field="account"
+          <AccountSelectInput
+            value={selector.account}
+            onChange={(evt: any) => this.handleAccountChange(evt.target.value)}
             accounts={accounts}
-            onChange={this.handleAccountChange}
             provider="'kubernetes'"
           />
         </StageConfigField>
@@ -169,25 +348,77 @@ export class ManifestSelector extends React.Component<IManifestSelectorProps, IM
             value={{ value: selector.location, label: selector.location }}
             options={namespaces.map(ns => ({ value: ns, label: ns }))}
             onChange={this.handleNamespaceChange}
+            promptTextCreator={this.promptTextCreator}
           />
         </StageConfigField>
-        <StageConfigField label="Kind">
-          <Creatable
-            clearable={false}
-            value={{ value: kind, label: kind }}
-            options={kinds.map(k => ({ value: k, label: k }))}
-            onChange={this.handleKindChange}
-          />
-        </StageConfigField>
-        <StageConfigField label="Name">
-          <Creatable
-            isLoading={loading}
-            clearable={false}
-            value={{ value: name, label: name }}
-            options={resourceNames.map(r => ({ value: r, label: r }))}
-            onChange={(option: Option) => this.handleNameChange(option ? (option.value as string) : null)}
-          />
-        </StageConfigField>
+        {!modes.includes(SelectorMode.Label) && KindField}
+        {modes.length > 1 && (
+          <StageConfigField label="Selector">
+            {modes.map(mode => (
+              <div className="radio" key={mode}>
+                <label htmlFor={mode}>
+                  <input
+                    type="radio"
+                    onChange={() => this.handleModeSelect(mode)}
+                    checked={selectedMode === mode}
+                    id={mode}
+                  />{' '}
+                  {get(SelectorModeDataMap, [mode, 'label'], '')}
+                </label>
+              </div>
+            ))}
+          </StageConfigField>
+        )}
+        {modes.includes(SelectorMode.Label) && selectedMode !== SelectorMode.Label && KindField}
+        {modes.includes(SelectorMode.Static) && selectedMode === SelectorMode.Static && (
+          <StageConfigField label="Name">
+            <Creatable
+              isLoading={loading}
+              clearable={false}
+              value={{ value: name, label: name }}
+              options={resourceNames.map(r => ({ value: r, label: r }))}
+              onChange={(option: Option) => this.handleNameChange(option ? (option.value as string) : '')}
+              promptTextCreator={this.promptTextCreator}
+            />
+          </StageConfigField>
+        )}
+        {modes.includes(SelectorMode.Dynamic) && selectedMode === SelectorMode.Dynamic && (
+          <>
+            <StageConfigField label="Cluster">
+              <ScopeClusterSelector
+                clusters={this.getFilteredClusters()}
+                model={selector.cluster}
+                onChange={this.handleClusterChange}
+              />
+            </StageConfigField>
+            <StageConfigField label="Target">
+              <TargetSelect
+                onChange={this.handleCriteriaChange}
+                model={{ target: selector.criteria }}
+                options={StageConstants.MANIFEST_CRITERIA_OPTIONS}
+              />
+            </StageConfigField>
+          </>
+        )}
+        {modes.includes(SelectorMode.Label) && selectedMode === SelectorMode.Label && (
+          <>
+            <StageConfigField label="Kinds">
+              <Select
+                clearable={false}
+                multi={true}
+                value={selectedKinds}
+                options={kinds.map(k => ({ value: k, label: k }))}
+                onChange={(options: Array<Option<string>>) => this.handleKindsChange(options.map(o => o.value))}
+              />
+            </StageConfigField>
+            <StageConfigField label="Labels">
+              <LabelEditor
+                labelSelectors={get(selector, 'labelSelectors.selectors', [])}
+                onLabelSelectorsChange={this.handleLabelSelectorsChange}
+              />
+            </StageConfigField>
+          </>
+        )}
       </>
     );
   }

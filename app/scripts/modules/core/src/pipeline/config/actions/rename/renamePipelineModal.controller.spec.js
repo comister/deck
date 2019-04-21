@@ -1,16 +1,16 @@
-import { APPLICATION_MODEL_BUILDER } from 'core/application/applicationModel.builder';
+import { ApplicationModelBuilder } from 'core/application/applicationModel.builder';
 import { PipelineConfigService } from 'core/pipeline/config/services/PipelineConfigService';
 
 describe('Controller: renamePipelineModal', function() {
   const angular = require('angular');
 
-  beforeEach(window.module(require('./rename.module.js').name, APPLICATION_MODEL_BUILDER));
+  beforeEach(window.module(require('./rename.module').name));
 
   beforeEach(
-    window.inject(function($controller, $rootScope, $log, $q, applicationModelBuilder) {
+    window.inject(function($controller, $rootScope, $log, $q) {
       this.$q = $q;
       this.$rootScope = $rootScope;
-      this.application = applicationModelBuilder.createApplicationForTests('app', {
+      this.application = ApplicationModelBuilder.createApplicationForTests('app', {
         key: 'pipelineConfigs',
         lazy: true,
         loader: () => this.$q.when(this.application.pipelineConfigs.data),
@@ -57,7 +57,7 @@ describe('Controller: renamePipelineModal', function() {
         newName: 'd',
       };
 
-      spyOn(PipelineConfigService, 'renamePipeline').and.callFake(function(applicationName, {}, currentName, newName) {
+      spyOn(PipelineConfigService, 'renamePipeline').and.callFake(function(applicationName, _, currentName, newName) {
         submittedNewName = newName;
         submittedCurrentName = currentName;
         submittedApplication = applicationName;
